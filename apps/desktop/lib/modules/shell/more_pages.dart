@@ -123,7 +123,7 @@ class _CustomersState extends State<CustomersPage> {
         context,
         () => ReceiptPrinter.tempReport('statement-${'${c['id']}'.substring(0, 8)}', 'كشف حساب عميل', ['التاريخ', 'البيان', 'المرجع', 'مدين', 'دائن', 'الرصيد'], rows,
             intro: ['${c['name']}${c['phone'] != null ? ' — ${c['phone']}' : ''}', 'حتى تاريخ ${_dateOf(_muscatNow())}'],
-            summary: [('الرصيد المستحق على العميل (ر.ع)', formatOmr(_i(p['balance_baisa'])))]));
+            summary: [('الرصيد المستحق على العميل (${Currency.symbol})', formatOmr(_i(p['balance_baisa'])))]));
   }
 
   Future<void> _openInvoice(String id) async {
@@ -175,7 +175,7 @@ class _CustomersState extends State<CustomersPage> {
                           padding: const EdgeInsets.all(14),
                           child: Row(children: [
                             Expanded(child: Text('${_selected!['name']} · ${_selected!['phone'] ?? 'بلا هاتف'}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800))),
-                            Text('الرصيد الآجل: ${formatOmr(balance)} ر.ع', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: balance > 0 ? Brand.bad : Brand.ok)),
+                            Text('الرصيد الآجل: ${money(balance)}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: balance > 0 ? Brand.bad : Brand.ok)),
                             const SizedBox(width: 10),
                             if (balance > 0 && widget.ctx.sessionId != null) FilledButton(onPressed: _collect, child: const Text('تحصيل')),
                             const SizedBox(width: 6),
@@ -366,7 +366,7 @@ class _RefundState extends State<RefundDialog> {
     final lines = <Map<String, dynamic>>[];
     String? err;
     for (final l in _lines) {
-      final q = parseOmr(l.qty.text.trim().isEmpty ? '0' : l.qty.text);
+      final q = parseMilli(l.qty.text.trim().isEmpty ? '0' : l.qty.text);
       if (q == null) err ??= 'كمية غير صالحة: ${l.line['description_ar']}';
       if (q != null && q > (_d(l.line['remaining_qty']) * 1000).round()) err ??= 'الكمية أكبر من المتبقي: ${l.line['description_ar']}';
       if (q != null && q > 0) lines.add({'line_no': l.line['line_no'], 'qty': q / 1000, 'restock': l.restock});
@@ -390,7 +390,7 @@ class _RefundState extends State<RefundDialog> {
       }) as Map)
           .cast<String, dynamic>();
       if (!mounted) return;
-      await _info(context, 'سُجّل المرتجع ${r['refund_no']}\nالمبلغ المردود: ${formatOmr(_i(r['amount_baisa']))} ر.ع — ${_refundMethods[_method]}');
+      await _info(context, 'سُجّل المرتجع ${r['refund_no']}\nالمبلغ المردود: ${money(_i(r['amount_baisa']))} — ${_refundMethods[_method]}');
       if (mounted) Navigator.pop(context, true);
       return;
     } on BusinessError catch (e) {
@@ -595,7 +595,7 @@ class _ExpenseState extends State<ExpenseDialog> {
               textDirection: TextDirection.ltr,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(labelText: 'المبلغ (ر.ع)'),
+              decoration: InputDecoration(labelText: 'المبلغ (${Currency.symbol})'),
               onSubmitted: (_) => _save(),
             ),
             const SizedBox(height: 10),
@@ -855,9 +855,9 @@ class _ReportsState extends State<ReportsPage> {
         () => ReceiptPrinter.tempReport('vat-${_dateOf(from)}', 'تقرير ضريبة القيمة المضافة', _vatHeader, _vatRows(),
             intro: ['${_quarterLabel()} — من ${_dateOf(from)} إلى ${_dateOf(to)}', 'تقرير داخلي للمراجعة؛ الإقرار الرسمي يُعدّه المحاسب.'],
             summary: [
-              ('ضريبة المخرجات (ر.ع)', formatOmr(_i(_vat!['output_tax_baisa']))),
-              ('ضريبة المدخلات (ر.ع)', formatOmr(_i(_vat!['input_tax_baisa']))),
-              ('صافي الضريبة المستحقة (ر.ع)', formatOmr(_i(_vat!['net_tax_baisa']))),
+              ('ضريبة المخرجات (${Currency.symbol})', formatOmr(_i(_vat!['output_tax_baisa']))),
+              ('ضريبة المدخلات (${Currency.symbol})', formatOmr(_i(_vat!['input_tax_baisa']))),
+              ('صافي الضريبة المستحقة (${Currency.symbol})', formatOmr(_i(_vat!['net_tax_baisa']))),
             ]));
   }
 
@@ -892,7 +892,7 @@ class _ReportsState extends State<ReportsPage> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${b['name_ar']}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
-              Text('المبيعات ${formatOmr(_i(b['total_baisa']))} ر.ع  ·  ${_i(b['invoice_count'])} فاتورة'),
+              Text('المبيعات ${money(_i(b['total_baisa']))}  ·  ${_i(b['invoice_count'])} فاتورة'),
               Text('مجمل الربح ${b['gross_profit_baisa'] == null ? '—' : formatOmr(_i(b['gross_profit_baisa']))}'),
               Text('أصناف منخفضة أو نافدة: ${_i(b['low_stock'])}', style: TextStyle(color: _i(b['low_stock']) > 0 ? const Color(0xFF9A5B00) : Brand.muted)),
             ]),
@@ -944,8 +944,8 @@ class _ReportsState extends State<ReportsPage> {
         child: Text(
             [
               if (low > 0) '• $low صنفًا منخفضًا أو نافدًا — راجع قسم المخزون.',
-              if (_i(d['receivables_baisa']) > 0) '• ذمم عملاء آجلة بقيمة ${formatOmr(_i(d['receivables_baisa']))} ر.ع.',
-              if (_i(d['payables_baisa']) > 0) '• مستحقات موردين بقيمة ${formatOmr(_i(d['payables_baisa']))} ر.ع.',
+              if (_i(d['receivables_baisa']) > 0) '• ذمم عملاء آجلة بقيمة ${money(_i(d['receivables_baisa']))}.',
+              if (_i(d['payables_baisa']) > 0) '• مستحقات موردين بقيمة ${money(_i(d['payables_baisa']))}.',
               if (low == 0 && _i(d['receivables_baisa']) == 0 && _i(d['payables_baisa']) == 0) 'لا تنبيهات.',
             ].join('\n'),
             style: const TextStyle(fontSize: 15)),
@@ -974,7 +974,7 @@ class _ReportsState extends State<ReportsPage> {
         child: Row(children: [
           Text('ضريبة المخرجات ${formatOmr(_i(v['output_tax_baisa']))}   −   ضريبة المدخلات ${formatOmr(_i(v['input_tax_baisa']))}', style: const TextStyle(fontSize: 15)),
           const Spacer(),
-          Text('الصافي المستحق ${formatOmr(_i(v['net_tax_baisa']))} ر.ع', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          Text('الصافي المستحق ${money(_i(v['net_tax_baisa']))}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
         ]),
       ),
     ]);
@@ -1085,7 +1085,7 @@ class _TransferState extends State<TransferDialog> {
   }
 
   Future<void> _save() async {
-    final q = parseOmr(_qty.text);
+    final q = parseMilli(_qty.text);
     if (q == null || q <= 0) {
       setState(() => _error = 'كمية غير صالحة.');
       return;
@@ -1171,12 +1171,220 @@ class _SettingsState extends State<SettingsPage> {
   bool get _canUsers => widget.ctx.permissions.contains('users.manage');
   bool get _canNotify => widget.ctx.permissions.contains('notifications.manage');
 
-  // الإشعارات
+  // المنشأة والعملة وصلاحيات الأقسام
+  Map<String, dynamic>? _org;
+  final _orgName = TextEditingController(), _orgNameEn = TextEditingController(), _taxNo = TextEditingController();
+  final _curCode = TextEditingController(), _curSymbol = TextEditingController(), _phoneCode = TextEditingController(), _waMsg = TextEditingController();
+  int _decimals = 3;
+  bool _symBefore = false, _group = false;
+  Map<String, Set<String>> _tabRoles = {};
+  bool get _canOrg => _org?['can_manage'] == true;
+
+  Future<void> _loadOrg() async {
+    try {
+      final r = (await Api.rpc('app_settings', {'p_branch_id': widget.ctx.branchId}) as Map).cast<String, dynamic>();
+      final o = ((r['organization'] as Map?) ?? const {}).cast<String, dynamic>();
+      final c = ((r['currency'] as Map?) ?? const {}).cast<String, dynamic>();
+      if (!mounted) return;
+      setState(() {
+        _org = r;
+        _orgName.text = '${o['name_ar'] ?? ''}';
+        _orgNameEn.text = '${o['name_en'] ?? ''}';
+        _taxNo.text = '${o['tax_registration_no'] ?? ''}';
+        _curCode.text = '${c['code'] ?? 'OMR'}';
+        _curSymbol.text = '${c['symbol'] ?? ''}';
+        _decimals = _i(c['decimals'] ?? 3);
+        _symBefore = c['symbol_before'] == true;
+        _group = c['thousands_separator'] == true;
+        _phoneCode.text = '${r['phone_country_code'] ?? '968'}';
+        _waMsg.text = '${r['whatsapp_message_ar'] ?? ''}';
+        _tabRoles = {
+          for (final e in ((r['tab_roles'] as Map?) ?? const {}).entries) '${e.key}': ((e.value as List?) ?? const []).map((x) => '$x').toSet(),
+        };
+      });
+    } catch (e) {
+      if (mounted) setState(() { _msg = _fail(e); _msgOk = false; _org = const {}; });
+    }
+  }
+
+  Future<void> _saveOrg(Map<String, dynamic> patch, String done) async {
+    setState(() { _busy = true; _msg = null; });
+    try {
+      await Api.rpc('update_org_settings', {'p_organization_id': widget.ctx.organizationId, 'p': patch});
+      await _loadOrg();
+      _msg = done;
+      _msgOk = true;
+      widget.onChanged?.call(); // يعيد تحميل العملة والأقسام الظاهرة
+    } catch (e) {
+      _msg = _fail(e);
+      _msgOk = false;
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  void _saveOrgIdentity() {
+    final code = _curCode.text.trim().toUpperCase(), symbol = _curSymbol.text.trim(), phone = _phoneCode.text.trim();
+    if (_orgName.text.trim().isEmpty || !RegExp(r'^[A-Z]{3}$').hasMatch(code) || symbol.isEmpty || symbol.length > 8 || !RegExp(r'^[0-9]{1,4}$').hasMatch(phone)) {
+      setState(() { _msg = 'تحقق من الاسم، ورمز العملة الدولي (ثلاثة أحرف مثل OMR)، ورمز العرض (حتى 8 أحرف)، ومفتاح الدولة (أرقام فقط).'; _msgOk = false; });
+      return;
+    }
+    _saveOrg({
+      'name_ar': _orgName.text.trim(), 'name_en': _orgNameEn.text.trim(), 'tax_registration_no': _taxNo.text.trim(),
+      'currency_code': code, 'currency_symbol': symbol, 'currency_decimals': _decimals, 'symbol_before': _symBefore, 'thousands_separator': _group,
+      'phone_country_code': phone, 'whatsapp_message_ar': _waMsg.text.trim(),
+    }, 'حُفظت إعدادات المنشأة والعملة.');
+  }
+
+  String _sample(int baisa) {
+    final unit = const [1000, 100, 10, 1][_decimals], pow = 1000 ~/ unit, scaled = (baisa * 2 + unit) ~/ (unit * 2);
+    var whole = '${scaled ~/ pow}';
+    if (_group) whole = whole.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+    final n = _decimals == 0 ? whole : '$whole.${(scaled % pow).toString().padLeft(_decimals, '0')}';
+    final sym = _curSymbol.text.trim();
+    return _symBefore ? '$sym $n' : '$n $sym';
+  }
+
+  Widget _section(String t) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)));
+  Widget _fields(List<Widget> children) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final (i, w) in children.indexed) ...[if (i > 0) const SizedBox(width: 12), Expanded(child: w)],
+        ]),
+      );
+  Widget _check(String label, bool value, ValueChanged<bool>? onChanged) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Checkbox(value: value, onChanged: onChanged == null ? null : (v) => onChanged(v ?? false)),
+        Flexible(child: Text(label)),
+      ]);
+  Widget _status() => _msg == null ? const SizedBox.shrink() : Padding(padding: const EdgeInsets.only(top: 12), child: Text(_msg!, style: TextStyle(color: _msgOk ? Brand.ok : Brand.bad, fontSize: 16)));
+
+  Widget _orgView() {
+    if (_org == null) return const Center(child: CircularProgressIndicator());
+    final e = _canOrg && !_busy;
+    return ListView(padding: const EdgeInsets.all(18), children: [
+      if (!_canOrg) const Padding(padding: EdgeInsets.only(bottom: 10), child: Text('للعرض فقط: بيانات المنشأة والعملة يغيّرها المالك.', style: TextStyle(color: Color(0xFF9A5B00), fontWeight: FontWeight.w600))),
+      _section('بيانات المنشأة'),
+      _fields([_input(_orgName, 'اسم المنشأة بالعربية', enabled: e), _input(_orgNameEn, 'الاسم بالإنجليزية', ltr: true, enabled: e), _input(_taxNo, 'الرقم الضريبي', ltr: true, enabled: e)]),
+      const Divider(height: 28),
+      _section('العملة وصيغة المبالغ'),
+      _fields([
+        _input(_curCode, 'رمز العملة الدولي (مثل OMR)', ltr: true, enabled: e),
+        _input(_curSymbol, 'الرمز الظاهر في الشاشات والفواتير', enabled: e, onChanged: (_) => setState(() {})),
+        _labeled(
+            'الخانات العشرية',
+            DropdownButton<int>(
+              value: _decimals,
+              isExpanded: true,
+              items: const [
+                DropdownMenuItem(value: 3, child: Text('3 خانات — 12.500')),
+                DropdownMenuItem(value: 2, child: Text('خانتان — 12.50')),
+                DropdownMenuItem(value: 1, child: Text('خانة واحدة — 12.5')),
+                DropdownMenuItem(value: 0, child: Text('بلا كسور — 13')),
+              ],
+              onChanged: e ? (v) => setState(() => _decimals = v ?? 3) : null,
+            )),
+      ]),
+      Wrap(spacing: 22, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        _check('فاصل الآلاف (1,250)', _group, e ? (v) => setState(() => _group = v) : null),
+        _check('الرمز قبل المبلغ', _symBefore, e ? (v) => setState(() => _symBefore = v) : null),
+        Text('مثال: ${_sample(1250500)}', textDirection: TextDirection.rtl, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+      ]),
+      const SizedBox(height: 6),
+      const Text('المبالغ تُحفظ وتُحسب دائمًا بثلاث خانات؛ هذا الإعداد يحدد ما يُعرض ويُطبع وما يُقبل في الإدخال. تقليل الخانات يقرّب المعروض فقط، فأبقِ ثلاث خانات للريال العُماني.', style: TextStyle(color: Brand.muted)),
+      const Divider(height: 28),
+      _section('الهاتف وواتساب'),
+      _fields([
+        _input(_phoneCode, 'مفتاح الدولة للأرقام المحلية (968)', ltr: true, enabled: e),
+        const SizedBox.shrink(),
+        const SizedBox.shrink(),
+      ]),
+      TextField(
+        controller: _waMsg,
+        enabled: e,
+        minLines: 3,
+        maxLines: 6,
+        maxLength: 600,
+        decoration: const InputDecoration(
+          labelText: 'نص رسالة واتساب عند إرسال الفاتورة (اتركه فارغًا للنص الافتراضي)',
+          helperText: 'الرموز المتاحة: {customer} {branch} {invoice} {date} {total} {currency} {warranty} {pdf} {phone}',
+          alignLabelWithHint: true,
+        ),
+      ),
+      const SizedBox(height: 12),
+      if (_canOrg) Align(alignment: AlignmentDirectional.centerStart, child: FilledButton(onPressed: _busy ? null : _saveOrgIdentity, child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ'))),
+      _status(),
+    ]);
+  }
+
+  static const _tabLabels = <String, String>{
+    'sale': 'البيع', 'customers': 'العملاء', 'inventory': 'المخزون', 'purchases': 'المشتريات', 'day': 'اليومية', 'reports': 'التقارير', 'settings': 'الإعدادات',
+  };
+
+  Widget _accessView() {
+    if (_org == null) return const Center(child: CircularProgressIndicator());
+    final e = _canOrg && !_busy;
+    return ListView(padding: const EdgeInsets.all(18), children: [
+      Text(_canOrg ? 'حدّد الأقسام التي تظهر لكل دور. المالك يرى كل الأقسام دائمًا.' : 'للعرض فقط: صلاحيات الأقسام يحددها المالك.', style: const TextStyle(fontWeight: FontWeight.w600)),
+      const SizedBox(height: 12),
+      Table(
+        border: const TableBorder(horizontalInside: BorderSide(color: Brand.line)),
+        columnWidths: const {0: FixedColumnWidth(190)},
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        children: [
+          TableRow(children: [
+            const Padding(padding: EdgeInsets.all(8), child: Text('القسم', style: TextStyle(fontWeight: FontWeight.w800))),
+            for (final r in _roleLabels.values) Padding(padding: const EdgeInsets.all(8), child: Text(r, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800))),
+          ]),
+          for (final t in _tabLabels.entries)
+            TableRow(children: [
+              Padding(padding: const EdgeInsets.all(8), child: Text(t.value, style: const TextStyle(fontSize: 16))),
+              for (final r in _roleLabels.keys)
+                Center(
+                  child: Checkbox(
+                    value: r == 'owner' || (_tabRoles[t.key]?.contains(r) ?? false),
+                    onChanged: e && r != 'owner'
+                        ? (v) => setState(() {
+                              final set = _tabRoles.putIfAbsent(t.key, () => <String>{});
+                              v == true ? set.add(r) : set.remove(r);
+                            })
+                        : null,
+                  ),
+                ),
+            ]),
+        ],
+      ),
+      const SizedBox(height: 10),
+      const Text('هذا الإعداد يحدد ما يظهر في الشريط العلوي. العمليات نفسها (الخصم، الاستلام، المرتجع…) تبقى محكومة بصلاحيات الدور في الخادم، ودور كل مستخدم يُضبط من «المستخدمون».', style: TextStyle(color: Brand.muted)),
+      const SizedBox(height: 14),
+      if (_canOrg)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: FilledButton(
+            onPressed: _busy ? null : () => _saveOrg({'tab_roles': {for (final t in _tabLabels.keys) t: (_tabRoles[t] ?? const <String>{}).toList()}}, 'حُفظت صلاحيات الأقسام. تُطبَّق عند دخول كل مستخدم.'),
+            child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ صلاحيات الأقسام'),
+          ),
+        ),
+      _status(),
+    ]);
+  }
+
+  // الإشعارات والربط
   Map<String, dynamic>? _notify;
+  final _waPhoneId = TextEditingController(), _waToken = TextEditingController(), _waTemplate = TextEditingController(), _waLang = TextEditingController();
+  final _smsUser = TextEditingController(), _smsPass = TextEditingController(), _smsHeader = TextEditingController(), _smsText = TextEditingController();
 
   Future<void> _loadNotify() async {
     try {
       final r = (await Api.rpc('notification_overview', {'p_organization_id': widget.ctx.organizationId}) as Map).cast<String, dynamic>();
+      final st = ((r['settings'] as Map?) ?? const {}).cast<String, dynamic>();
+      final link = ((r['link'] as Map?) ?? const {}).cast<String, dynamic>();
+      _waPhoneId.text = '${link['whatsapp_phone_id'] ?? ''}';
+      _waTemplate.text = '${st['whatsapp_template'] ?? ''}';
+      _waLang.text = '${st['whatsapp_lang'] ?? ''}';
+      _smsUser.text = '${link['sms_user'] ?? ''}';
+      _smsHeader.text = '${link['sms_header'] ?? ''}';
+      _smsText.text = '${st['sms_text_ar'] ?? ''}';
+      _waToken.clear();
+      _smsPass.clear();
       if (mounted) setState(() => _notify = r);
     } catch (e) {
       if (mounted) setState(() { _msg = _fail(e); _msgOk = false; _notify = const {}; });
@@ -1212,23 +1420,136 @@ class _SettingsState extends State<SettingsPage> {
     await _loadNotify();
   }
 
+  /// يحفظ بيانات الربط. الحقول السرية (الرمز وكلمة المرور) تُرسل فقط إذا كُتبت؛ الفارغ يعني «أبقِ المحفوظ».
+  Future<void> _saveLink() async {
+    setState(() { _busy = true; _msg = null; });
+    try {
+      await Api.rpc('set_notification_credentials', {
+        'p_organization_id': widget.ctx.organizationId,
+        'p': {
+          'whatsapp_phone_id': _waPhoneId.text.trim(), 'sms_user': _smsUser.text.trim(), 'sms_header': _smsHeader.text.trim(),
+          if (_waToken.text.trim().isNotEmpty) 'whatsapp_token': _waToken.text.trim(),
+          if (_smsPass.text.trim().isNotEmpty) 'sms_password': _smsPass.text.trim(),
+        }
+      });
+      await Api.rpc('update_notification_settings', {
+        'p_organization_id': widget.ctx.organizationId,
+        'p': {'whatsapp_template': _waTemplate.text.trim(), 'whatsapp_lang': _waLang.text.trim(), 'sms_text_ar': _smsText.text.trim()}
+      });
+      await _loadNotify();
+      _msg = 'حُفظت بيانات الربط.';
+      _msgOk = true;
+    } catch (e) {
+      _msg = _fail(e);
+      _msgOk = false;
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _unlink(String what) async {
+    setState(() { _busy = true; _msg = null; });
+    try {
+      await Api.rpc('set_notification_credentials', {
+        'p_organization_id': widget.ctx.organizationId,
+        'p': what == 'whatsapp' ? {'whatsapp_token': '', 'whatsapp_phone_id': ''} : {'sms_user': '', 'sms_password': '', 'sms_header': ''}
+      });
+      await _loadNotify();
+      _msg = 'أُلغي الربط.';
+      _msgOk = true;
+    } catch (e) {
+      _msg = _fail(e);
+      _msgOk = false;
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Widget _badge(bool ok, String yes, String no) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(color: (ok ? Brand.ok : Brand.muted).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+        child: Text(ok ? yes : no, style: TextStyle(color: ok ? Brand.ok : Brand.muted, fontWeight: FontWeight.w700)),
+      );
+
+  Widget _secret(TextEditingController c, String label, bool saved, bool enabled) => TextField(
+        controller: c,
+        enabled: enabled,
+        obscureText: true,
+        textDirection: TextDirection.ltr,
+        decoration: InputDecoration(labelText: label, isDense: true, hintText: saved ? 'محفوظ — اتركه فارغًا للإبقاء عليه' : null),
+      );
+
   Widget _notifyView() {
-    if (!_canNotify) return _note('إعدادات الإشعارات للمالك.');
+    if (!_canNotify) return _note('إعدادات واتساب والرسائل للمالك.');
     final n = _notify;
     if (n == null) return const Center(child: CircularProgressIndicator());
     final st = ((n['settings'] as Map?) ?? const {}).cast<String, dynamic>();
+    final link = ((n['link'] as Map?) ?? const {}).cast<String, dynamic>();
+    final e = link['can_edit'] == true && !_busy;
+    final hasWa = link['has_whatsapp'] == true, hasSms = link['has_sms'] == true;
     const statusLabels = {'pending': 'معلّق', 'sent': 'أُرسل', 'mock': 'تجريبي (لم يُرسل)', 'failed': 'فشل'};
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return ListView(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _section('زر واتساب في شاشة البيع'),
+          const Text('يعمل بلا ربط: يفتح محادثة العميل في واتساب ويب المفتوح على هذا الجهاز بحساب المحل، ومعه رابط الفاتورة PDF. نص الرسالة يُعدَّل من «المنشأة والعملة».', style: TextStyle(color: Brand.muted)),
+          const Divider(height: 28),
+          Row(children: [Expanded(child: _section('الإرسال الآلي عبر واتساب (WhatsApp Cloud API)')), _badge(hasWa, 'مربوط', 'غير مربوط')]),
+          _fields([
+            _input(_waPhoneId, 'معرّف رقم الهاتف (Phone number ID)', ltr: true, enabled: e),
+            _secret(_waToken, 'رمز الوصول الدائم (Access token)', hasWa, e),
+          ]),
+          _fields([
+            _input(_waTemplate, 'اسم القالب المعتمد', ltr: true, enabled: e),
+            _input(_waLang, 'لغة القالب (ar أو en)', ltr: true, enabled: e),
+          ]),
+          const Text('القالب يُنشأ ويُعتمد في حساب واتساب للأعمال، بثلاثة متغيرات بالترتيب: اسم العميل، رقم الفاتورة، الإجمالي.', style: TextStyle(color: Brand.muted)),
+          const Divider(height: 28),
+          Row(children: [Expanded(child: _section('الرسائل النصية القصيرة (iSmartSMS)')), _badge(hasSms, 'مربوط', 'غير مربوط')]),
+          _fields([
+            _input(_smsUser, 'اسم المستخدم', ltr: true, enabled: e),
+            _secret(_smsPass, 'كلمة المرور', hasSms, e),
+            _input(_smsHeader, 'اسم المرسل المعتمد (Sender ID)', ltr: true, enabled: e),
+          ]),
+          TextField(
+            controller: _smsText,
+            enabled: e,
+            maxLength: 300,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'نص الرسالة النصية (فارغ = النص الافتراضي)',
+              helperText: 'الرموز: {customer} {branch} {invoice} {total} {currency}',
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (link['can_edit'] == true)
+            Wrap(spacing: 10, runSpacing: 8, children: [
+              FilledButton(onPressed: _busy ? null : _saveLink, child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ بيانات الربط')),
+              if (hasWa) OutlinedButton(onPressed: _busy ? null : () => _unlink('whatsapp'), child: const Text('إلغاء ربط واتساب')),
+              if (hasSms) OutlinedButton(onPressed: _busy ? null : () => _unlink('sms'), child: const Text('إلغاء ربط الرسائل')),
+            ])
+          else
+            const Text('بيانات الربط يدخلها المالك.', style: TextStyle(color: Color(0xFF9A5B00), fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          const Text('الرموز وكلمات المرور تُحفظ في الخادم ولا تُعرض بعد الحفظ ولا تصل إلى أي جهاز.', style: TextStyle(color: Brand.muted)),
+          const Divider(height: 28),
+          _section('التشغيل'),
+        ]),
+      ),
       Padding(
         padding: const EdgeInsets.all(14),
         child: Wrap(spacing: 16, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Row(mainAxisSize: MainAxisSize.min, children: [
             Checkbox(value: st['enabled'] == true, onChanged: (v) => _setNotify({'enabled': v ?? false})),
-            const Text('إرسال إشعار الفاتورة للعميل (واتساب أولًا)'),
+            const Text('إرسال إشعار الفاتورة للعميل آليًا'),
+          ]),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Checkbox(value: st['whatsapp_enabled'] != false, onChanged: (v) => _setNotify({'whatsapp_enabled': v ?? false})),
+            const Text('عبر واتساب'),
           ]),
           Row(mainAxisSize: MainAxisSize.min, children: [
             Checkbox(value: st['sms_fallback'] == true, onChanged: (v) => _setNotify({'sms_fallback': v ?? false})),
-            const Text('رسالة نصية عند فشل واتساب'),
+            const Text('رسالة نصية عند تعذّر واتساب أو إيقافه'),
           ]),
           Text('معلّق: ${_i(n['pending'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
           FilledButton(onPressed: _busy ? null : _runWorker, child: Text(_busy ? 'جارٍ المعالجة…' : 'معالجة المعلّق الآن')),
@@ -1236,36 +1557,33 @@ class _SettingsState extends State<SettingsPage> {
       ),
       const Padding(
         padding: EdgeInsets.symmetric(horizontal: 14),
-        child: Text('الإرسال الفعلي يتطلب التفعيل هنا ووجود مفاتيح واتساب أو iSmartSMS في أسرار الخادم. بدونها تُسجَّل الرسائل «تجريبي» ولا يصل شيء لأي عميل.', style: TextStyle(color: Brand.muted)),
+        child: Text('الإرسال الفعلي يتطلب التفعيل هنا ووجود ربط واتساب أو الرسائل أعلاه. بدونهما تُسجَّل الرسائل «تجريبي» ولا يصل شيء لأي عميل.', style: TextStyle(color: Brand.muted)),
       ),
       if (_msg != null) Padding(padding: const EdgeInsets.all(14), child: Text(_msg!, style: TextStyle(color: _msgOk ? Brand.ok : Brand.bad, fontSize: 16))),
       const SizedBox(height: 8),
       _head([('الوقت', 2), ('العميل', 3), ('الفاتورة', 3), ('الحالة', 2), ('القناة', 1), ('ملاحظة', 3)]),
-      Expanded(
-        child: ListView(children: [
-          for (final e in _maps(n['events']))
-            Container(
-              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Brand.line))),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Row(children: [
-                _cell('${e['created_at']}'.substring(0, 16).replaceFirst('T', ' '), flex: 2, num: true),
-                _cell('${e['customer'] ?? ''}', flex: 3),
-                _cell('${e['invoice_no'] ?? ''}', flex: 3, num: true),
-                _cell(statusLabels[e['status']] ?? '${e['status']}', flex: 2, bold: true),
-                _cell('${e['channel'] ?? '—'}', flex: 1),
-                _cell('${e['last_error'] ?? ''}', flex: 3),
-              ]),
-            ),
-        ]),
-      ),
+      for (final ev in _maps(n['events']))
+        Container(
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Brand.line))),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(children: [
+            _cell('${ev['created_at']}'.substring(0, 16).replaceFirst('T', ' '), flex: 2, num: true),
+            _cell('${ev['customer'] ?? ''}', flex: 3),
+            _cell('${ev['invoice_no'] ?? ''}', flex: 3, num: true),
+            _cell(statusLabels[ev['status']] ?? '${ev['status']}', flex: 2, bold: true),
+            _cell('${ev['channel'] ?? '—'}', flex: 1),
+            _cell('${ev['last_error'] ?? ''}', flex: 3),
+          ]),
+        ),
     ]);
   }
 
   @override
   void dispose() {
-    _rate.dispose();
-    _header.dispose();
-    _footer.dispose();
+    for (final c in [_rate, _header, _footer, _orgName, _orgNameEn, _taxNo, _curCode, _curSymbol, _phoneCode, _waMsg,
+      _waPhoneId, _waToken, _waTemplate, _waLang, _smsUser, _smsPass, _smsHeader, _smsText]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1289,7 +1607,7 @@ class _SettingsState extends State<SettingsPage> {
   }
 
   Future<void> _saveBranch() async {
-    final rate = parseOmr(_rate.text); // نسبة مئوية بثلاث خانات → جزء من عشرة آلاف
+    final rate = parseMilli(_rate.text); // نسبة مئوية بثلاث خانات → جزء من عشرة آلاف
     if (rate == null || rate > 100000) {
       setState(() { _msg = 'نسبة الضريبة غير صالحة.'; _msgOk = false; });
       return;
@@ -1428,14 +1746,17 @@ class _SettingsState extends State<SettingsPage> {
             showSelectedIcon: false,
             segments: const [
               ButtonSegment(value: 'device', label: Text('الجهاز والطباعة')),
+              ButtonSegment(value: 'org', label: Text('المنشأة والعملة')),
               ButtonSegment(value: 'branch', label: Text('الفرع والضريبة والفاتورة')),
-              ButtonSegment(value: 'users', label: Text('المستخدمون والصلاحيات')),
-              ButtonSegment(value: 'notify', label: Text('الإشعارات')),
+              ButtonSegment(value: 'users', label: Text('المستخدمون')),
+              ButtonSegment(value: 'access', label: Text('صلاحيات الأقسام')),
+              ButtonSegment(value: 'notify', label: Text('واتساب والرسائل')),
             ],
             selected: {_view},
             onSelectionChanged: (s) {
               setState(() { _view = s.first; _msg = null; });
               if (_view == 'branch' && !_loaded) _loadBranch();
+              if (_view == 'org' || _view == 'access') _loadOrg();
               if (_view == 'users' && _canUsers) _loadUsers();
               if (_view == 'notify' && _canNotify) _loadNotify();
             },
@@ -1443,7 +1764,7 @@ class _SettingsState extends State<SettingsPage> {
           const Spacer(),
           if (_view == 'users' && _canUsers) FilledButton(onPressed: () => _editUser(null), child: const Text('مستخدم جديد')),
         ],
-        child: switch (_view) { 'branch' => _branch(), 'users' => _usersView(), 'notify' => _notifyView(), _ => _device() },
+        child: switch (_view) { 'org' => _orgView(), 'access' => _accessView(), 'branch' => _branch(), 'users' => _usersView(), 'notify' => _notifyView(), _ => _device() },
       );
 }
 
@@ -1493,7 +1814,7 @@ class _UserState extends State<UserDialog> {
 
   Future<void> _save() async {
     final isNew = widget.user == null;
-    final disc = parseOmr(_disc.text.trim().isEmpty ? '0' : _disc.text);
+    final disc = parseMilli(_disc.text.trim().isEmpty ? '0' : _disc.text);
     String? err;
     if (_name.text.trim().isEmpty) err = 'الاسم مطلوب.';
     if (err == null && isNew && !RegExp(r'^[a-z0-9._-]{3,30}$').hasMatch(_username.text.trim().toLowerCase())) err = 'اسم المستخدم بحروف إنجليزية وأرقام (3 خانات على الأقل)، مثل cashier.2';

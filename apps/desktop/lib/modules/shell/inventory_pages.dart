@@ -93,6 +93,13 @@ class _InventoryState extends State<InventoryPage> {
     if (done == true) await _load();
   }
 
+  Future<void> _batches() async {
+    final row = (_rows ?? const <Map<String, dynamic>>[]).where((r) => r['product_id'] == _selected).toList();
+    if (row.isEmpty) return _deny('اختر صنفًا من القائمة أولًا ثم اضغط «الدفعات والرفوف».');
+    final changed = await showDialog<bool>(context: context, builder: (_) => BatchesDialog(ctx: widget.ctx, row: row.first));
+    if (changed == true) await _load();
+  }
+
   Future<void> _deny(String text) => showDialog<void>(
       context: context,
       builder: (c) => AlertDialog(content: Text(text, style: const TextStyle(fontSize: 17)), actions: [FilledButton(autofocus: true, onPressed: () => Navigator.pop(c), child: const Text('حسنًا'))]));
@@ -104,7 +111,7 @@ class _InventoryState extends State<InventoryPage> {
       if (_filter == 'low' && !_low(r)) return false;
       if (_filter == 'out' && _d(r['qty']) > 0) return false;
       if (_filter == 'old' && !_old(r)) return false;
-      return _q.isEmpty || '${r['name_ar']} ${r['sku']} ${r['brand'] ?? ''} ${r['tire_size'] ?? ''}'.toLowerCase().contains(_q.toLowerCase());
+      return _q.isEmpty || '${r['name_ar']} ${r['sku']} ${r['brand'] ?? ''} ${r['tire_size'] ?? ''} ${r['shelves'] ?? ''}'.toLowerCase().contains(_q.toLowerCase());
     }).toList();
     final showCost = all.any((r) => r['value_baisa'] != null);
     final value = all.fold<int>(0, (s, r) => s + _i(r['value_baisa']));
@@ -114,6 +121,7 @@ class _InventoryState extends State<InventoryPage> {
         const SingleActivator(LogicalKeyboardKey.f4): () {
           if (_selected != null) _card(_selected);
         },
+        const SingleActivator(LogicalKeyboardKey.f5): _batches,
         const SingleActivator(LogicalKeyboardKey.f6): _receive,
         const SingleActivator(LogicalKeyboardKey.f7): _transfer,
         const SingleActivator(LogicalKeyboardKey.f9): _count,
@@ -121,7 +129,7 @@ class _InventoryState extends State<InventoryPage> {
       child: _Page(
         title: 'المخزون — ${widget.ctx.branchName}',
         tools: [
-          SizedBox(width: 240, child: TextField(autofocus: true, decoration: const InputDecoration(hintText: 'بحث بالاسم أو المقاس أو الماركة', isDense: true), onChanged: (v) => setState(() => _q = v.trim()))),
+          SizedBox(width: 240, child: TextField(autofocus: true, decoration: const InputDecoration(hintText: 'بحث بالاسم أو المقاس أو الماركة أو الرف', isDense: true), onChanged: (v) => setState(() => _q = v.trim()))),
           const SizedBox(width: 10),
           SegmentedButton<String>(
             showSelectedIcon: false,
@@ -139,6 +147,8 @@ class _InventoryState extends State<InventoryPage> {
           const SizedBox(width: 6),
           OutlinedButton(onPressed: _selected == null ? null : () => _card(_selected), child: const Text('بطاقة الصنف F4')),
           const SizedBox(width: 6),
+          OutlinedButton(onPressed: _selected == null ? null : _batches, child: const Text('الدفعات والرفوف F5')),
+          const SizedBox(width: 6),
           OutlinedButton(onPressed: _receive, child: const Text('استلام مشتريات F6')),
           const SizedBox(width: 6),
           OutlinedButton(onPressed: _transfer, child: const Text('تحويل F7')),
@@ -150,7 +160,7 @@ class _InventoryState extends State<InventoryPage> {
             : _rows == null
                 ? const Center(child: CircularProgressIndicator())
                 : Column(children: [
-                    _head([('الصنف', 5), ('المقاس', 2), ('الماركة', 2), ('سنة الإنتاج', 2), ('الكمية', 2), if (showCost) ('متوسط التكلفة', 2), ('سعر البيع', 2), ('الحالة', 2)]),
+                    _head([('الصنف', 5), ('المقاس', 2), ('الماركة', 2), ('أقدم سنة', 2), ('الرف', 2), ('الكمية', 2), if (showCost) ('متوسط التكلفة', 2), ('سعر البيع', 2), ('الحالة', 2)]),
                     Expanded(
                       child: rows.isEmpty
                           ? _note('لا توجد أصناف مطابقة.')
@@ -177,6 +187,7 @@ class _InventoryState extends State<InventoryPage> {
                                         _cell('${r['tire_size'] ?? '—'}', flex: 2, num: true),
                                         _cell('${r['brand'] ?? '—'}', flex: 2),
                                         _cell('${r['tire_year'] ?? '—'}', flex: 2, num: true),
+                                        _cell('${r['shelves'] ?? '—'}', flex: 2, num: true),
                                         _cell('${_qtyText(r['qty'])} ${r['unit']}', flex: 2),
                                         if (showCost) _cell(r['avg_cost_baisa'] == null ? '—' : formatOmr(_i(r['avg_cost_baisa'])), flex: 2, num: true),
                                         _cell(formatOmr(_i(r['price_baisa'])), flex: 2, num: true),
@@ -193,7 +204,7 @@ class _InventoryState extends State<InventoryPage> {
                       child: Row(children: [
                         Text('الأصناف: ${all.length}   ·   منخفض: ${all.where(_low).length}   ·   نافد: ${all.where((r) => _d(r['qty']) <= 0).length}', style: const TextStyle(fontSize: 15)),
                         const Spacer(),
-                        if (showCost) Text('قيمة المخزون بالتكلفة: ${formatOmr(value)} ر.ع', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                        if (showCost) Text('قيمة المخزون بالتكلفة: ${money(value)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                       ]),
                     ),
                   ]),
@@ -284,7 +295,7 @@ class _ProductCardState extends State<ProductCardDialog> {
   Future<void> _save() async {
     final price = parseOmr(_price.text);
     final minPrice = _minPrice.text.trim().isEmpty ? null : parseOmr(_minPrice.text);
-    final reorder = _reorder.text.trim().isEmpty ? null : parseOmr(_reorder.text);
+    final reorder = _reorder.text.trim().isEmpty ? null : parseMilli(_reorder.text);
     String? err;
     if (_sku.text.trim().isEmpty || _nameAr.text.trim().isEmpty) err = 'الرمز والاسم العربي مطلوبان.';
     if (err == null && price == null) err = 'سعر البيع غير صالح.';
@@ -397,20 +408,22 @@ class _ProductCardState extends State<ProductCardDialog> {
                           _input(_width, 'العرض', ltr: true, enabled: e),
                           _input(_aspect, 'النسبة', ltr: true, enabled: e),
                           _input(_rim, 'القطر', ltr: true, enabled: e),
-                          _input(_year, 'سنة الإنتاج', ltr: true, enabled: e),
-                          _input(_country, 'بلد الصنع', enabled: e),
                         ]),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10),
+                          child: Text('سنة الإنتاج والأسبوع (DOT) وبلد الصنع والرف تُدخل مع كل دفعة عند استلام المشتريات، وتُعرض من «الدفعات والرفوف» في المخزون.', style: TextStyle(color: Brand.muted)),
+                        ),
                       ],
                       _section('التسعير'),
                       _row([
-                        _input(_price, 'سعر البيع (ر.ع)', ltr: true, enabled: e, onChanged: (_) => setState(() {})),
-                        _input(_minPrice, 'أدنى سعر للكاشير (ر.ع)', ltr: true, enabled: e),
+                        _input(_price, 'سعر البيع (${Currency.symbol})', ltr: true, enabled: e, onChanged: (_) => setState(() {})),
+                        _input(_minPrice, 'أدنى سعر للكاشير (${Currency.symbol})', ltr: true, enabled: e),
                         _input(_warranty, 'الضمان (أشهر)', ltr: true, enabled: e),
                       ]),
                       if (avg != null && price != null && price > 0)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: Text('متوسط التكلفة ${formatOmr(_i(avg))} ر.ع  ·  الهامش ${formatOmr(price - _i(avg))} ر.ع (${((price - _i(avg)) * 100 / price).toStringAsFixed(1)}%)',
+                          child: Text('متوسط التكلفة ${money(_i(avg))}  ·  الهامش ${money(price - _i(avg))} (${((price - _i(avg)) * 100 / price).toStringAsFixed(1)}%)',
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                         ),
                       Row(children: [
@@ -510,7 +523,7 @@ class _StockCountState extends State<StockCountDialog> {
   }
 
   int? _delta() {
-    final c = parseOmr(_counted.text); // جزء من الألف
+    final c = parseMilli(_counted.text); // جزء من الألف
     return c == null ? null : c - (_d(widget.row['qty']) * 1000).round();
   }
 
@@ -725,7 +738,7 @@ class _PurchasesState extends State<PurchasesPage> {
                               Container(
                                 color: Brand.bg,
                                 padding: const EdgeInsets.all(12),
-                                child: Text('إجمالي المستحق للموردين: ${formatOmr(payable)} ر.ع', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                                child: Text('إجمالي المستحق للموردين: ${money(payable)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                               ),
                             ]),
                           ),
@@ -740,7 +753,16 @@ class _PLine {
   final Map<String, dynamic> product;
   final qty = TextEditingController(text: '1');
   final cost = TextEditingController();
+  // بيانات الدفعة: تُحفظ على الدفعة المستلمة لا على الصنف
+  final dot = TextEditingController(), year = TextEditingController(), week = TextEditingController();
+  final country = TextEditingController(), shelf = TextEditingController(), note = TextEditingController();
   _PLine(this.product);
+  bool get isTire => product['category'] == 'tire';
+  void dispose() {
+    for (final c in [qty, cost, dot, year, week, country, shelf, note]) {
+      c.dispose();
+    }
+  }
 }
 
 /// استلام مشتريات: المورّد ورقم فاتورته وتاريخها، طريقة الدفع، ضريبة المدخلات، والبنود بالكمية وتكلفة الوحدة (غير شاملة الضريبة).
@@ -787,8 +809,7 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
   @override
   void dispose() {
     for (final l in _lines) {
-      l.qty.dispose();
-      l.cost.dispose();
+      l.dispose();
     }
     _reference.dispose();
     _date.dispose();
@@ -809,9 +830,16 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
 
   void _add(Map<String, dynamic> p) {
     setState(() {
-      if (!_lines.any((l) => l.product['product_id'] == p['product_id'])) {
+      // الإطار نفسه قد يُستلم بعدة دفعات (سنة أو رف مختلف): كل إضافة سطر مستقل. غير الإطارات سطر واحد لكل صنف.
+      if (p['category'] == 'tire' || !_lines.any((l) => l.product['product_id'] == p['product_id'])) {
         final l = _PLine(p);
-        if (p['avg_cost_baisa'] != null) l.cost.text = formatOmr(_i(p['avg_cost_baisa']));
+        final same = _lines.where((x) => x.product['product_id'] == p['product_id']).toList();
+        if (same.isNotEmpty) {
+          l.cost.text = same.last.cost.text;
+          l.country.text = same.last.country.text;
+        } else if (p['avg_cost_baisa'] != null) {
+          l.cost.text = formatOmr(_i(p['avg_cost_baisa']));
+        }
         _lines.add(l);
       }
       _search.clear();
@@ -820,10 +848,21 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
     _searchFocus.requestFocus();
   }
 
+  Widget _batchField(TextEditingController c, String label, {String? hint, bool ltr = true}) => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: TextField(
+          controller: c,
+          textDirection: ltr ? TextDirection.ltr : null,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(labelText: label, hintText: hint, isDense: true),
+          onChanged: (_) => setState(() {}),
+        ),
+      );
+
   int _subtotal() {
     var t = 0;
     for (final l in _lines) {
-      final q = parseOmr(l.qty.text), c = parseOmr(l.cost.text);
+      final q = parseMilli(l.qty.text), c = parseOmr(l.cost.text);
       if (q != null && c != null) t += roundDiv(q * c, 1000);
     }
     return t;
@@ -835,9 +874,18 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
     String? err;
     if (_lines.isEmpty) err = 'أضف صنفًا واحدًا على الأقل.';
     for (final l in _lines) {
-      final q = parseOmr(l.qty.text), c = parseOmr(l.cost.text);
+      final q = parseMilli(l.qty.text), c = parseOmr(l.cost.text);
       if (err == null && (q == null || q <= 0)) err = 'كمية غير صالحة: ${l.product['name_ar']}';
       if (err == null && c == null) err = 'أدخل تكلفة الوحدة: ${l.product['name_ar']}';
+      if (err == null && l.isTire) {
+        final dot = l.dot.text.trim(), y = int.tryParse(l.year.text.trim()), w = int.tryParse(l.week.text.trim());
+        final dotOk = RegExp(r'^[0-9]{4}$').hasMatch(dot) && int.parse(dot.substring(0, 2)) >= 1 && int.parse(dot.substring(0, 2)) <= 53;
+        if (dot.isNotEmpty && !dotOk) err = 'رمز DOT أربعة أرقام: الأسبوع ثم السنة، مثل 2325 — ${l.product['name_ar']}';
+        if (err == null && l.year.text.trim().isNotEmpty && (y == null || y < 2000 || y > 2100)) err = 'سنة الصنع غير صالحة: ${l.product['name_ar']}';
+        if (err == null && l.week.text.trim().isNotEmpty && (w == null || w < 1 || w > 53)) err = 'أسبوع الصنع بين 1 و53: ${l.product['name_ar']}';
+        if (err == null && !dotOk && y == null) err = 'أدخل رمز DOT أو سنة الصنع لدفعة: ${l.product['name_ar']}';
+        if (err == null && l.shelf.text.trim().isEmpty) err = 'حدّد الرف الذي تُخزَّن فيه دفعة: ${l.product['name_ar']}';
+      }
     }
     if (err == null && !_validDate(_date.text.trim())) err = 'تاريخ الفاتورة بصيغة 2026-11-27.';
     if (err == null && _method == 'credit' && _supplier == null) err = 'الشراء الآجل يتطلب اختيار المورّد.';
@@ -861,7 +909,16 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
           if (_method == 'cash') 'cash_session_id': widget.ctx.sessionId,
           'tax_rate_bp': _rateBp,
           'lines': [
-            for (final l in _lines) {'product_id': l.product['product_id'], 'qty': parseOmr(l.qty.text)! / 1000, 'unit_cost_baisa': parseOmr(l.cost.text)},
+            for (final l in _lines)
+              {
+                'product_id': l.product['product_id'], 'qty': parseMilli(l.qty.text)! / 1000, 'unit_cost_baisa': parseOmr(l.cost.text),
+                if (l.dot.text.trim().isNotEmpty) 'dot_code': l.dot.text.trim(),
+                if (int.tryParse(l.year.text.trim()) != null) 'tire_year': int.parse(l.year.text.trim()),
+                if (int.tryParse(l.week.text.trim()) != null) 'tire_week': int.parse(l.week.text.trim()),
+                if (l.country.text.trim().isNotEmpty) 'country': l.country.text.trim(),
+                if (l.shelf.text.trim().isNotEmpty) 'shelf': l.shelf.text.trim(),
+                if (l.note.text.trim().isNotEmpty) 'note': l.note.text.trim(),
+              },
           ],
         }
       });
@@ -885,8 +942,8 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
     return AlertDialog(
       title: const Text('استلام مشتريات'),
       content: SizedBox(
-        width: 940,
-        height: 600,
+        width: 1060,
+        height: 660,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(
@@ -910,7 +967,7 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
             Expanded(flex: 2, child: _input(_date, 'تاريخ الفاتورة', ltr: true)),
           ]),
           if (sup.isNotEmpty && sup.first['balance_baisa'] != null)
-            Padding(padding: const EdgeInsets.only(top: 6), child: Text('رصيد حساب المورّد (مستحق له): ${formatOmr(_i(sup.first['balance_baisa']))} ر.ع', style: const TextStyle(color: Brand.muted))),
+            Padding(padding: const EdgeInsets.only(top: 6), child: Text('رصيد حساب المورّد (مستحق له): ${money(_i(sup.first['balance_baisa']))}', style: const TextStyle(color: Brand.muted))),
           const SizedBox(height: 10),
           Row(children: [
             SegmentedButton<String>(
@@ -962,14 +1019,16 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
                 ? _note('لم تُضف أصناف بعد.')
                 : ListView(children: [
                     for (final l in _lines)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                        child: Row(children: [
-                          _cell('${l.product['name_ar']}', flex: 5, bold: true),
+                      Container(
+                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Brand.line))),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        child: Column(children: [
+                         Row(children: [
+                          _cell('${l.product['name_ar']}${l.product['tire_size'] != null ? '  ${l.product['tire_size']}' : ''}', flex: 5, bold: true),
                           Expanded(flex: 2, child: Padding(padding: const EdgeInsets.only(left: 8), child: TextField(controller: l.qty, textDirection: TextDirection.ltr, decoration: const InputDecoration(isDense: true), onChanged: (_) => setState(() {})))),
                           Expanded(flex: 3, child: Padding(padding: const EdgeInsets.only(left: 8), child: TextField(controller: l.cost, textDirection: TextDirection.ltr, decoration: const InputDecoration(isDense: true), onChanged: (_) => setState(() {})))),
                           _cell(
-                              parseOmr(l.qty.text) != null && parseOmr(l.cost.text) != null ? formatOmr(roundDiv(parseOmr(l.qty.text)! * parseOmr(l.cost.text)!, 1000)) : '—',
+                              parseMilli(l.qty.text) != null && parseOmr(l.cost.text) != null ? formatOmr(roundDiv(parseMilli(l.qty.text)! * parseOmr(l.cost.text)!, 1000)) : '—',
                               flex: 2,
                               num: true),
                           Expanded(
@@ -979,11 +1038,26 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
                               icon: const Icon(Icons.close, size: 18),
                               onPressed: () => setState(() {
                                 _lines.remove(l);
-                                l.qty.dispose();
-                                l.cost.dispose();
+                                l.dispose();
                               }),
                             ),
                           ),
+                         ]),
+                         const SizedBox(height: 6),
+                         Row(children: [
+                          if (l.isTire) ...[
+                            Expanded(flex: 2, child: _batchField(l.dot, 'DOT (أسبوع+سنة)', hint: '2325')),
+                            Expanded(flex: 2, child: _batchField(l.year, 'سنة الصنع', hint: '2025')),
+                            Expanded(flex: 2, child: _batchField(l.week, 'الأسبوع')),
+                            Expanded(flex: 3, child: _batchField(l.country, 'بلد الصنع', ltr: false)),
+                          ],
+                          Expanded(flex: 2, child: _batchField(l.shelf, l.isTire ? 'الرف *' : 'الرف', hint: 'A-3')),
+                          Expanded(flex: 4, child: _batchField(l.note, 'ملاحظة الدفعة', ltr: false)),
+                          if (l.isTire)
+                            TextButton(onPressed: () => _add(l.product), child: const Text('+ دفعة أخرى'))
+                          else
+                            const Spacer(flex: 9),
+                         ]),
                         ]),
                       ),
                   ]),
@@ -994,7 +1068,7 @@ class _ReceiveState extends State<ReceivePurchaseDialog> {
             child: Row(children: [
               Text('قبل الضريبة ${formatOmr(sub)}   ·   الضريبة ${formatOmr(tax)}', style: const TextStyle(fontSize: 15)),
               const Spacer(),
-              Text('المستحق ${formatOmr(sub + tax)} ر.ع', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              Text('المستحق ${money(sub + tax)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             ]),
           ),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: const TextStyle(color: Brand.bad, fontSize: 16))),
@@ -1120,7 +1194,7 @@ class _PaySupplierState extends State<PaySupplierDialog> {
         content: SizedBox(
           width: 440,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('المستحق له: ${formatOmr(_i(widget.supplier['balance_baisa']))} ر.ع', style: const TextStyle(color: Brand.muted)),
+            Text('المستحق له: ${money(_i(widget.supplier['balance_baisa']))}', style: const TextStyle(color: Brand.muted)),
             const SizedBox(height: 12),
             SegmentedButton<String>(
               showSelectedIcon: false,
@@ -1135,7 +1209,7 @@ class _PaySupplierState extends State<PaySupplierDialog> {
               textDirection: TextDirection.ltr,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(labelText: 'المبلغ (ر.ع)'),
+              decoration: InputDecoration(labelText: 'المبلغ (${Currency.symbol})'),
               onSubmitted: (_) => _save(),
             ),
             const SizedBox(height: 10),
@@ -1148,4 +1222,116 @@ class _PaySupplierState extends State<PaySupplierDialog> {
           FilledButton(onPressed: _busy ? null : _save, child: Text(_busy ? 'جارٍ التسجيل…' : 'سداد')),
         ],
       );
+}
+
+
+/// دفعات الصنف في هذا الفرع: كل دفعة بكميتها وسنتها وبلد صنعها ورفّها. من يملك إدارة المخزون يعدّل الرف وبيانات الدفعة.
+class BatchesDialog extends StatefulWidget {
+  final ShiftContext ctx;
+  final Map<String, dynamic> row;
+  const BatchesDialog({super.key, required this.ctx, required this.row});
+  @override
+  State<BatchesDialog> createState() => _BatchesState();
+}
+
+class _BatchesState extends State<BatchesDialog> {
+  late List<Map<String, dynamic>> _lots = _maps(widget.row['lots']);
+  bool _changed = false, _busy = false;
+  String? _error;
+
+  bool get _canEdit => widget.ctx.permissions.contains('inventory.manage');
+
+  Future<void> _edit(Map<String, dynamic> lot) async {
+    final shelf = TextEditingController(text: '${lot['shelf'] ?? ''}'), year = TextEditingController(text: '${lot['tire_year'] ?? ''}');
+    final week = TextEditingController(text: '${lot['tire_week'] ?? ''}'), country = TextEditingController(text: '${lot['country'] ?? ''}');
+    final note = TextEditingController(text: '${lot['note'] ?? ''}');
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+              title: const Text('بيانات الدفعة'),
+              content: SizedBox(
+                width: 460,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  _input(shelf, 'الرف', ltr: true, autofocus: true),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(child: _input(year, 'سنة الصنع', ltr: true)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _input(week, 'الأسبوع', ltr: true)),
+                    const SizedBox(width: 10),
+                    Expanded(flex: 2, child: _input(country, 'بلد الصنع')),
+                  ]),
+                  const SizedBox(height: 10),
+                  _input(note, 'ملاحظة'),
+                ]),
+              ),
+              actions: [
+                OutlinedButton(onPressed: () => Navigator.pop(c, false), child: const Text('رجوع')),
+                FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حفظ')),
+              ],
+            ));
+    final y = int.tryParse(year.text.trim()), w = int.tryParse(week.text.trim());
+    final patch = <String, dynamic>{'shelf': shelf.text.trim(), 'country': country.text.trim(), 'note': note.text.trim(), 'tire_year': y, 'tire_week': w};
+    final bad = (year.text.trim().isNotEmpty && (y == null || y < 2000 || y > 2100)) || (week.text.trim().isNotEmpty && (w == null || w < 1 || w > 53));
+    if (ok != true || !mounted) return;
+    if (bad) {
+      setState(() => _error = 'سنة الصنع أو الأسبوع غير صالح.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      final r = (await Api.rpc('update_lot', {'p_lot_id': lot['lot_id'], 'p': patch}) as Map).cast<String, dynamic>();
+      _lots = [for (final l in _lots) l['lot_id'] == lot['lot_id'] ? {...l, ...r} : l];
+      _changed = true;
+    } catch (e) {
+      _error = _fail(e);
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.row;
+    final showCost = _lots.any((l) => l['unit_cost_baisa'] != null);
+    return AlertDialog(
+      title: Text('الدفعات والرفوف — ${r['name_ar']}${r['tire_size'] != null ? '  ${r['tire_size']}' : ''}'),
+      content: SizedBox(
+        width: 980,
+        height: 460,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _head([('تاريخ الاستلام', 2), ('فاتورة المورّد', 2), ('DOT', 1), ('السنة', 1), ('الأسبوع', 1), ('بلد الصنع', 2), ('الرف', 2), ('المتبقي', 2), if (showCost) ('التكلفة', 2), ('ملاحظة', 3), ('', 1)]),
+          Expanded(
+            child: _lots.isEmpty
+                ? _note('لا توجد دفعات فيها رصيد لهذا الصنف في هذا الفرع.')
+                : ListView(children: [
+                    for (final l in _lots)
+                      Container(
+                        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Brand.line))),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        child: Row(children: [
+                          _cell('${l['received_at']}'.substring(0, 10), flex: 2, num: true),
+                          _cell('${l['reference'] ?? l['lot_code'] ?? '—'}', flex: 2, num: true),
+                          _cell('${l['dot_code'] ?? '—'}', flex: 1, num: true),
+                          _cell('${l['tire_year'] ?? '—'}', flex: 1, num: true),
+                          _cell('${l['tire_week'] ?? '—'}', flex: 1, num: true),
+                          _cell('${l['country'] ?? '—'}', flex: 2),
+                          _cell('${l['shelf'] ?? '—'}', flex: 2, num: true, bold: true, color: l['shelf'] == null ? Brand.bad : null),
+                          _cell('${_qtyText(l['qty'])} من ${_qtyText(l['qty_received'])}', flex: 2),
+                          if (showCost) _cell(l['unit_cost_baisa'] == null ? '—' : formatOmr(_i(l['unit_cost_baisa'])), flex: 2, num: true),
+                          _cell('${l['note'] ?? ''}', flex: 3),
+                          Expanded(flex: 1, child: _canEdit ? TextButton(onPressed: _busy ? null : () => _edit(l), child: const Text('تعديل')) : const SizedBox.shrink()),
+                        ]),
+                      ),
+                  ]),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('البيع يسحب من الدفعة الأقدم استلامًا أولًا. عند نقل الإطارات إلى رف آخر عدّل الرف هنا.', style: TextStyle(color: Brand.muted)),
+          ),
+          if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: const TextStyle(color: Brand.bad, fontSize: 16))),
+        ]),
+      ),
+      actions: [FilledButton(onPressed: () => Navigator.pop(context, _changed), child: const Text('إغلاق (Esc)'))],
+    );
+  }
 }

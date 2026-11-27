@@ -58,7 +58,7 @@ class _SaveState extends State<SaveDraftDialog> {
         content: SizedBox(
           width: 420,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('${widget.cart.lines.length} بنود — ${formatOmr(widget.totalBaisa)} ر.ع', style: const TextStyle(color: Brand.muted)),
+            Text('${widget.cart.lines.length} بنود — ${money(widget.totalBaisa)}', style: const TextStyle(color: Brand.muted)),
             const SizedBox(height: 12),
             TextField(controller: _title, autofocus: true, decoration: const InputDecoration(labelText: 'اسم المسودة (اللوحة أو العميل)'), onSubmitted: (_) => _save()),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Brand.bad))),

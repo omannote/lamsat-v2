@@ -160,7 +160,7 @@ class ReceiptPrinter {
       row('الصافي قبل الضريبة', formatOmr(n('net_baisa'))),
       if (n('tax_baisa') > 0) row('ضريبة القيمة المضافة ${formatQty((inv['tax_rate_bp'] as num).toInt() * 10)}%', formatOmr(n('tax_baisa'))),
       pw.SizedBox(height: 2),
-      row('الإجمالي (ر.ع)', formatOmr(n('total_baisa')), style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+      row('الإجمالي (${Currency.symbol})', formatOmr(n('total_baisa')), style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
       pw.SizedBox(height: 2),
       for (final p in payments) row(_payLabel(p), formatOmr((p['amount_baisa'] as num).toInt())),
       if (n('change_baisa') > 0) row('الباقي', formatOmr(n('change_baisa'))),
@@ -297,7 +297,7 @@ class ReceiptPrinter {
             if (n('tax_baisa') > 0)
               total('ضريبة القيمة المضافة ${formatQty((inv['tax_rate_bp'] as num).toInt() * 10)}%${inv['prices_include_tax'] == true ? ' (ضمن السعر)' : ''}', formatOmr(n('tax_baisa'))),
             pw.Divider(color: line, thickness: .8),
-            total('الإجمالي (ر.ع)', formatOmr(n('total_baisa')), big: true),
+            total('الإجمالي (${Currency.symbol})', formatOmr(n('total_baisa')), big: true),
           ]),
         ),
       ]),
@@ -459,7 +459,7 @@ class ReceiptPrinter {
   static String? whatsappPhone(String? raw) {
     var d = (raw ?? '').replaceAll(RegExp(r'[^0-9]'), '');
     if (d.startsWith('00')) d = d.substring(2);
-    if (d.length == 8) d = '968$d';
+    if (d.length == 8) d = '${Currency.phoneCode}$d';
     return (d.length >= 10 && d.length <= 15) ? d : null;
   }
 
@@ -468,11 +468,30 @@ class ReceiptPrinter {
   static String whatsappUrl(Map<String, dynamic> inv, String phone, {String? pdfLink}) {
     final branch = (inv['branch'] as Map).cast<String, dynamic>();
     final customer = inv['customer'] as Map?;
+    final warranty = [
+      for (final w in ((inv['warranties'] as List?) ?? const []).cast<Map>())
+        'ضمان ${w['product_name']}: ${w['months']} شهرًا حتى ${w['expires_on']} (رقم ${w['warranty_no']})',
+    ].join('\n');
+    final custom = Currency.whatsappMessage;
+    if (custom != null) {
+      // نص مخصص من الإعدادات. الرموز: {customer} {branch} {invoice} {date} {total} {currency} {warranty} {pdf} {phone}
+      var t = custom
+          .replaceAll('{customer}', '${customer?['name'] ?? ''}')
+          .replaceAll('{branch}', '${branch['receipt_header_ar'] ?? branch['name_ar']}')
+          .replaceAll('{invoice}', '${inv['invoice_no']}')
+          .replaceAll('{date}', _when(inv))
+          .replaceAll('{total}', formatOmr((inv['total_baisa'] as num).toInt()))
+          .replaceAll('{currency}', Currency.symbol)
+          .replaceAll('{warranty}', warranty)
+          .replaceAll('{phone}', '${branch['phone'] ?? ''}');
+      t = custom.contains('{pdf}') ? t.replaceAll('{pdf}', pdfLink ?? '') : (pdfLink == null ? t : '$t\n$pdfLink');
+      return 'https://web.whatsapp.com/send?phone=$phone&text=${Uri.encodeComponent(t.trim())}';
+    }
     final text = [
       'مرحبًا${customer != null ? ' ${customer['name']}' : ''}،',
       'شكرًا لزيارتكم ${branch['receipt_header_ar'] ?? branch['name_ar']}.',
       'فاتورتكم رقم ${inv['invoice_no']} بتاريخ ${_when(inv)}',
-      'الإجمالي: ${formatOmr((inv['total_baisa'] as num).toInt())} ر.ع',
+      'الإجمالي: ${money((inv['total_baisa'] as num).toInt())}',
       for (final w in ((inv['warranties'] as List?) ?? const []).cast<Map>())
         'ضمان ${w['product_name']}: ${w['months']} شهرًا حتى ${w['expires_on']} (رقم ${w['warranty_no']})',
       if (pdfLink != null) 'الفاتورة PDF (الرابط صالح 30 يومًا):\n$pdfLink',
@@ -533,7 +552,7 @@ class ReceiptPrinter {
           pw.Image(kind == PrinterKind.a4 ? _logoColor! : _logo!, width: 42 * PdfPageFormat.mm),
           pw.SizedBox(height: 6),
           pw.Text('اختبار الطباعة — ${kind.label}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-          pw.Text('0123456789  116.000 ر.ع', style: const pw.TextStyle(fontSize: 9)),
+          pw.Text('0123456789  116.000 ${Currency.symbol}', style: const pw.TextStyle(fontSize: 9)),
           pw.SizedBox(height: 8),
         ]),
       ));

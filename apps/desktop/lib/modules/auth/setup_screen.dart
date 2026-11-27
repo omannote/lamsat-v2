@@ -38,7 +38,7 @@ class _State extends State<SetupScreen> {
   bool get _hasSecond => _b2Name.text.trim().isNotEmpty;
 
   Future<void> _submit() async {
-    final rate = parseOmr(_rate.text.trim().isEmpty ? '0' : _rate.text);
+    final rate = parseMilli(_rate.text.trim().isEmpty ? '0' : _rate.text);
     final code = RegExp(r'^[A-Za-z0-9]{2,6}$');
     String? err;
     if (_org.text.trim().isEmpty) err = 'اسم المنشأة مطلوب.';

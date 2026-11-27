@@ -53,7 +53,7 @@ class _State extends State<CashMovementDialog> {
       final r = (await Api.rpc('record_cash_movement', {
         'p_operation_id': _opId, 'p_cash_session_id': widget.sessionId, 'p_type': _type, 'p_amount_baisa': amount, 'p_note': note,
       }) as Map).cast<String, dynamic>();
-      if (mounted) setState(() => _done = 'سُجّل ${_type == 'cash_out' ? 'الصرف' : 'القبض'}. النقد المتوقع في الدرج الآن ${formatOmr((r['drawer_baisa'] as num).toInt())} ر.ع');
+      if (mounted) setState(() => _done = 'سُجّل ${_type == 'cash_out' ? 'الصرف' : 'القبض'}. النقد المتوقع في الدرج الآن ${money((r['drawer_baisa'] as num).toInt())}');
     } on BusinessError catch (e) {
       _opInputs = null;
       if (mounted) setState(() => _error = e.code == 'INSUFFICIENT_CASH' ? 'المبلغ أكبر من النقد الموجود في الدرج.' : errorMessage(e.code));
@@ -89,7 +89,7 @@ class _State extends State<CashMovementDialog> {
             textDirection: TextDirection.ltr,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-            decoration: const InputDecoration(labelText: 'المبلغ (ر.ع)'),
+            decoration: InputDecoration(labelText: 'المبلغ (${Currency.symbol})'),
             textInputAction: TextInputAction.next,
             onSubmitted: (_) => _noteFocus.requestFocus(),
           ),

@@ -120,7 +120,7 @@ class _CollectState extends State<CollectDialog> {
         content: SizedBox(
           width: 440,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('الرصيد الآجل: ${formatOmr(widget.balanceBaisa)} ر.ع', style: const TextStyle(color: Brand.muted)),
+            Text('الرصيد الآجل: ${money(widget.balanceBaisa)}', style: const TextStyle(color: Brand.muted)),
             const SizedBox(height: 12),
             SegmentedButton<String>(
               segments: const [ButtonSegment(value: 'cash', label: Text('نقدي')), ButtonSegment(value: 'card', label: Text('بطاقة')), ButtonSegment(value: 'transfer', label: Text('تحويل بنكي'))],
@@ -134,7 +134,7 @@ class _CollectState extends State<CollectDialog> {
               textDirection: TextDirection.ltr,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(labelText: 'المبلغ المحصَّل (ر.ع)'),
+              decoration: InputDecoration(labelText: 'المبلغ المحصَّل (${Currency.symbol})'),
               onSubmitted: (_) => _save(),
             ),
             if (_method != 'cash')

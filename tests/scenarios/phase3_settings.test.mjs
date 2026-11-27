@@ -200,3 +200,75 @@ test('الإعداد الأول يُقفل بعد وجود منشأة، وتسج
   const moved = await db.rpc(ID.owner, 'register_device', ['POS-NEW-01', '', ID.tnt]);
   assert.deepEqual([moved.branch_id, moved.name], [ID.tnt, 'صندوق جديد']);
 });
+
+test('أقسام التطبيق حسب الدور: الكاشير يرى البيع والعملاء فقط، والمالك يضبطها ويبقى يرى الكل', async () => {
+  const c = await db.rpc(ID.cashierTyr, 'app_settings', [ID.tyr]);
+  assert.deepEqual([...c.my_tabs].sort(), ['customers', 'sale']);
+  assert.deepEqual([c.currency.code, c.currency.symbol, c.currency.decimals, c.can_manage], ['OMR', 'ر.ع', 3, false]);
+  assert.equal((await db.rpc(ID.manager, 'app_settings', [ID.tyr])).my_tabs.length, 7);
+  assert.deepEqual([...(await db.rpc(ID.accountant, 'app_settings', [ID.tnt])).my_tabs].sort(), ['customers', 'day', 'inventory', 'purchases', 'reports']);
+  await expectCode(db.rpc(ID.cashierTyr, 'app_settings', [ID.tnt]), 'FORBIDDEN');
+  await expectCode(db.rpc(ID.manager, 'update_org_settings', [ID.org, { tab_roles: { settings: ['cashier'] } }]), 'FORBIDDEN');
+
+  const s = await db.rpc(ID.owner, 'update_org_settings', [ID.org, { tab_roles: { day: ['cashier', 'nonsense'], settings: [] },
+    currency_symbol: 'OMR', currency_decimals: 2, thousands_separator: true, name_ar: 'لمسات للسيارات' }]);
+  assert.deepEqual([...s.tab_roles.day].sort(), ['cashier', 'owner'], 'الأدوار المجهولة تُهمل والمالك يبقى');
+  assert.deepEqual(s.tab_roles.settings, ['owner']);
+  assert.deepEqual([...(await db.rpc(ID.cashierTyr, 'app_settings', [ID.tyr])).my_tabs].sort(), ['customers', 'day', 'sale']);
+  const o = await db.rpc(ID.owner, 'app_settings', [ID.tnt]);
+  assert.deepEqual([o.my_tabs.length, o.currency.symbol, o.currency.decimals, o.currency.thousands_separator, o.organization.name_ar, o.can_manage],
+    [7, 'OMR', 2, true, 'لمسات للسيارات', true]);
+  assert.ok(!(await db.rpc(ID.manager, 'app_settings', [ID.tyr])).my_tabs.includes('settings'));
+  await expectCode(db.rpc(ID.owner, 'update_org_settings', [ID.org, { currency_decimals: 5 }]), 'INVALID_REQUEST');
+  await expectCode(db.rpc(ID.owner, 'update_org_settings', [ID.org, { currency_code: 'omr' }]), 'INVALID_REQUEST');
+});
+
+test('دفعات الإطارات: كل استلام يحمل سنته ورفّه، والصنف الواحد يُستلم بعدة دفعات، ويُنقل الرف لاحقًا', async () => {
+  const sup = (await db.rpc(ID.manager, 'save_supplier', [{ organization_id: ID.org, name: 'مورد الدفعات' }])).id
+    ?? (await db.sql(`select id from suppliers where name='مورد الدفعات'`))[0].id;
+  const r = await db.rpc(ID.manager, 'receive_purchase', [uuid(), { branch_id: ID.tyr, supplier_id: sup, reference: 'B-1', payment_method: 'credit', lines: [
+    { product_id: ID.tireHK, qty: 8, unit_cost_baisa: 20000, dot_code: '2325', country: 'كوريا', shelf: ' a-3 ' },
+    { product_id: ID.tireHK, qty: 4, unit_cost_baisa: 21000, tire_year: 2026, tire_week: 5, country: 'الصين', shelf: 'B-1', note: 'نقش مختلف' }] }]);
+  assert.equal(r.lines, 2);
+  const lots = await db.sql(`select * from inventory_lots where purchase_receipt_id=$1 order by unit_cost_baisa`, [r.receipt_id]);
+  assert.deepEqual(lots.map((l) => [Number(l.qty_on_hand), l.tire_year, l.tire_week, l.country, l.shelf, l.note]),
+    [[8, 2025, 23, 'كوريا', 'A-3', null], [4, 2026, 5, 'الصين', 'B-1', 'نقش مختلف']]);
+  await expectCode(db.rpc(ID.manager, 'receive_purchase', [uuid(), { branch_id: ID.tyr, supplier_id: sup, payment_method: 'credit',
+    lines: [{ product_id: ID.tireHK, qty: 1, unit_cost_baisa: 1, tire_year: 1990 }] }]), 'INVALID_REQUEST');
+
+  // الكاشير يرى الدفعات والرفوف بلا تكلفة؛ المدير يرى التكلفة
+  const forCashier = (await db.rpc(ID.cashierTyr, 'stock_report', [ID.tyr])).find((p) => p.product_id === ID.tireHK);
+  const mine = forCashier.lots.filter((l) => l.reference === 'B-1').sort((a, b) => a.shelf.localeCompare(b.shelf));
+  assert.deepEqual(mine.map((l) => [l.shelf, l.tire_year, l.unit_cost_baisa]), [['A-3', 2025, null], ['B-1', 2026, null]]);
+  assert.ok(forCashier.shelves.includes('A-3') && forCashier.shelves.includes('B-1'));
+  const forManager = (await db.rpc(ID.manager, 'stock_report', [ID.tyr])).find((p) => p.product_id === ID.tireHK);
+  assert.equal(forManager.lots.find((l) => l.shelf === 'B-1').unit_cost_baisa, 21000);
+
+  await expectCode(db.rpc(ID.cashierTyr, 'update_lot', [lots[0].id, { shelf: 'C-9' }]), 'FORBIDDEN');
+  const u = await db.rpc(ID.manager, 'update_lot', [lots[0].id, { shelf: 'c-9' }]);
+  assert.deepEqual([u.shelf, u.tire_year, u.country], ['C-9', 2025, 'كوريا']);
+  assert.equal(Number((await db.sql(`select count(*) n from audit_log where action='stock.lot_update'`))[0].n), 1);
+
+  // التحويل يحمل بيانات الدفعة إلى الفرع الآخر بلا رف
+  const before = Number((await db.sql(`select coalesce(sum(qty_on_hand),0) q from inventory_lots where branch_id=$1 and product_id=$2`, [ID.tyr, ID.tireHK]))[0].q);
+  await db.rpc(ID.owner, 'transfer_stock', [uuid(), ID.tyr, ID.tnt, ID.tireHK, before, 'نقل كامل']);
+  const moved = await db.sql(`select tire_year, country, shelf from inventory_lots where branch_id=$1 and product_id=$2 and tire_year=2026`, [ID.tnt, ID.tireHK]);
+  assert.deepEqual([moved.length, moved[0].country, moved[0].shelf], [1, 'الصين', null]);
+});
+
+test('بيانات ربط واتساب والرسائل تُكتب من المالك فقط ولا تُقرأ من أي حساب', async () => {
+  await expectCode(db.rpc(ID.manager, 'set_notification_credentials', [ID.org, { whatsapp_token: 'x' }]), 'FORBIDDEN');
+  const a = await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { whatsapp_token: 'tok-123', whatsapp_phone_id: '555' }]);
+  assert.deepEqual(a, { has_whatsapp: true, has_sms: false });
+  const b = await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { sms_user: 'u', sms_password: 'p', sms_header: 'LAMSAT' }]);
+  assert.deepEqual(b, { has_whatsapp: true, has_sms: true }, 'الحقول غير المرسلة تبقى');
+  const ov = await db.rpc(ID.owner, 'notification_overview', [ID.org]);
+  assert.deepEqual([ov.link.has_whatsapp, ov.link.whatsapp_phone_id, ov.link.sms_header, ov.link.can_edit], [true, '555', 'LAMSAT', true]);
+  assert.ok(!JSON.stringify(ov).includes('tok-123') && !JSON.stringify(ov).includes('"p"'), 'القيم السرية لا تعود');
+  assert.equal(await db.as(ID.owner, (c) => c.query('select count(*) n from notification_credentials')).then(() => 'read', () => 'denied'), 'denied');
+  const audit = (await db.sql(`select new_values from audit_log where action='notifications.credentials' order by id desc limit 1`))[0].new_values;
+  assert.ok(!JSON.stringify(audit).includes('LAMSAT'), 'سجل التدقيق يحفظ أسماء الحقول لا قيمها');
+  assert.equal((await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { whatsapp_token: '' }])).has_whatsapp, false);
+  const st = await db.rpc(ID.owner, 'update_notification_settings', [ID.org, { whatsapp_enabled: false, sms_text_ar: 'شكرًا {customer}' }]);
+  assert.deepEqual([st.whatsapp_enabled, st.sms_text_ar, st.enabled], [false, 'شكرًا {customer}', false]);
+});

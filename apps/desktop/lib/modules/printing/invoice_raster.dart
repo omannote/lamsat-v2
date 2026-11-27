@@ -207,7 +207,7 @@ class _Raster {
     ty += 4;
     p.line(_m, ty, tw, thickness: 1.2, color: _cInk);
     ty += 8;
-    ty += total('الإجمالي (ر.ع)', formatOmr(n('total_baisa')), big: true);
+    ty += total('الإجمالي (${Currency.symbol})', formatOmr(n('total_baisa')), big: true);
     y = (py > ty ? py : ty) + 18;
     breaks.add(y);
 
@@ -336,7 +336,7 @@ class _Raster {
     y += kv('الصافي قبل الضريبة', formatOmr(n('net_baisa')));
     if (n('tax_baisa') > 0) y += kv('ضريبة القيمة المضافة ${formatQty((inv['tax_rate_bp'] as num).toInt() * 10)}%', formatOmr(n('tax_baisa')));
     y += 6;
-    y += kv('الإجمالي (ر.ع)', formatOmr(n('total_baisa')), size: 34, weight: 700) + 6;
+    y += kv('الإجمالي (${Currency.symbol})', formatOmr(n('total_baisa')), size: 34, weight: 700) + 6;
     for (final pay in payments) {
       y += kv(ReceiptPrinter._payLabel(pay), formatOmr((pay['amount_baisa'] as num).toInt()));
     }

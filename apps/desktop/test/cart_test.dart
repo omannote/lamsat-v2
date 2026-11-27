@@ -12,6 +12,24 @@ void main() {
   const exclusive = TaxSettings(enabled: true, rateBp: 500, pricesIncludeTax: false);
   const none = TaxSettings(enabled: false, rateBp: 500, pricesIncludeTax: true);
 
+  test('العملة من الإعدادات: الخانات، فاصل الآلاف، موضع الرمز', () {
+    Currency.apply({
+      'currency': {'code': 'OMR', 'symbol': 'OMR', 'decimals': 2, 'thousands_separator': true, 'symbol_before': true},
+    });
+    expect(formatOmr(1250505), '1,250.51');
+    expect(money(5000), 'OMR 5.00');
+    expect(parseOmr('1,250.5'), 1250500);
+    expect(parseOmr('1.255'), isNull); // أدق من الخانات المضبوطة
+    expect(parseMilli('1.255'), 1255); // الكميات والنسب تبقى بثلاث خانات
+    Currency.apply({
+      'currency': {'symbol': 'ر.ع', 'decimals': 0},
+    });
+    expect(formatOmr(12500), '13');
+    Currency.apply({});
+    expect(formatOmr(1250505), '1250.505');
+    expect(money(5000), '5.000 ر.ع');
+  });
+
   test('المبالغ: تنسيق وتحليل بالبيسة', () {
     expect(formatOmr(116000), '116.000');
     expect(formatOmr(5), '0.005');

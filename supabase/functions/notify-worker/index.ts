@@ -1,6 +1,7 @@
 // عامل إشعارات العملاء: يعالج الأحداث المعلّقة في notification_events.
 // القناة الأولى واتساب Cloud API (قالب معتمد)، وعند فشل مؤكد يُجرَّب iSmartSMS إن كان مفعّلًا.
-// بلا أسرار المزوّد أو والإشعارات غير مفعّلة: تُسجَّل الرسالة بحالة mock ولا يُرسل شيء لأي عميل.
+// بيانات الربط تُقرأ من إعدادات المنشأة (جدول لا تصله التطبيقات) ثم من أسرار الخادم كبديل.
+// بلا بيانات ربط أو والإشعارات غير مفعّلة: تُسجَّل الرسالة بحالة mock ولا يُرسل شيء لأي عميل.
 // الاستدعاء: مالك المنشأة من التطبيق (JWT)، أو مهمة مجدولة بترويسة x-worker-secret.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -9,17 +10,23 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-worker-secret',
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
-const omr = (baisa: number) => `${Math.floor(baisa / 1000)}.${String(baisa % 1000).padStart(3, '0')}`;
+type Creds = { whatsapp_token?: string | null; whatsapp_phone_id?: string | null; sms_user?: string | null; sms_password?: string | null; sms_header?: string | null };
+function money(baisa: number, decimals: number, group: boolean) {
+  const d = Math.min(3, Math.max(0, decimals)), unit = 10 ** (3 - d), v = Math.round(baisa / unit);
+  let whole = String(Math.floor(v / 10 ** d));
+  if (group) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return d === 0 ? whole : `${whole}.${String(v % 10 ** d).padStart(d, '0')}`;
+}
 
-function phoneIntl(raw: string | null): string | null {
+function phoneIntl(raw: string | null, cc = '968'): string | null {
   let d = (raw ?? '').replace(/[^0-9]/g, '');
   if (d.startsWith('00')) d = d.slice(2);
-  if (d.length === 8) d = '968' + d;
+  if (d.length === 8) d = cc + d;
   return d.length >= 10 && d.length <= 15 ? d : null;
 }
 
-async function sendWhatsApp(to: string, template: string, lang: string, params: string[]) {
-  const token = Deno.env.get('WHATSAPP_TOKEN'), phoneId = Deno.env.get('WHATSAPP_PHONE_ID');
+async function sendWhatsApp(k: Creds, to: string, template: string, lang: string, params: string[]) {
+  const token = k.whatsapp_token || Deno.env.get('WHATSAPP_TOKEN'), phoneId = k.whatsapp_phone_id || Deno.env.get('WHATSAPP_PHONE_ID');
   if (!token || !phoneId) return { configured: false, ok: false, error: 'not_configured' };
   const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
     method: 'POST',
@@ -32,8 +39,8 @@ async function sendWhatsApp(to: string, template: string, lang: string, params: 
   return { configured: true, ok: res.ok, error: res.ok ? null : `whatsapp_${res.status}` };
 }
 
-async function sendSms(to: string, message: string, arabic: boolean) {
-  const user = Deno.env.get('ISMART_USER'), pass = Deno.env.get('ISMART_PASSWORD'), header = Deno.env.get('ISMART_HEADER');
+async function sendSms(k: Creds, to: string, message: string, arabic: boolean) {
+  const user = k.sms_user || Deno.env.get('ISMART_USER'), pass = k.sms_password || Deno.env.get('ISMART_PASSWORD'), header = k.sms_header || Deno.env.get('ISMART_HEADER');
   if (!user || !pass || !header) return { configured: false, ok: false, error: 'not_configured' };
   const body = new URLSearchParams({ UserId: user, Password: pass, MobileNo: to, Message: message, Lang: arabic ? '64' : '0', Header: header });
   const res = await fetch('https://www.ismartsms.net/iBulkSMS/HttpWS/SMSDynamicRefIntlAPI.aspx', { method: 'POST', body });
@@ -71,12 +78,17 @@ Deno.serve(async (req) => {
     const { data: s } = await admin.from('notification_settings').select('*').eq('organization_id', e.organization_id).maybeSingle();
     const { data: c } = await admin.from('customers').select('name, phone').eq('id', e.customer_id).maybeSingle();
     const { data: b } = await admin.from('branches').select('name_ar').eq('id', e.branch_id).maybeSingle();
-    const to = phoneIntl(c?.phone ?? null);
+    const { data: o } = await admin.from('org_settings').select('*').eq('organization_id', e.organization_id).maybeSingle();
+    const { data: k0 } = await admin.from('notification_credentials').select('*').eq('organization_id', e.organization_id).maybeSingle();
+    const k: Creds = k0 ?? {};
+    const to = phoneIntl(c?.phone ?? null, o?.phone_country_code ?? '968');
     const invoiceNo = String(e.payload?.invoice_no ?? '');
-    const total = omr(Number(e.payload?.total_baisa ?? 0));
+    const total = money(Number(e.payload?.total_baisa ?? 0), o?.currency_decimals ?? 3, o?.thousands_separator ?? false);
+    const fill = (t: string) => t.replaceAll('{customer}', c?.name ?? '').replaceAll('{branch}', b?.name_ar ?? '').replaceAll('{invoice}', invoiceNo)
+      .replaceAll('{total}', total).replaceAll('{currency}', o?.currency_symbol ?? 'ر.ع');
     const message = e.lang === 'en'
-      ? `Thank you for visiting ${b?.name_ar ?? ''}. Invoice ${invoiceNo}, total ${total} OMR.`
-      : `شكرًا لزيارتكم ${b?.name_ar ?? ''}. فاتورتكم ${invoiceNo} بإجمالي ${total} ر.ع`;
+      ? `Thank you for visiting ${b?.name_ar ?? ''}. Invoice ${invoiceNo}, total ${total} ${o?.currency_code ?? 'OMR'}.`
+      : fill(s?.sms_text_ar || 'شكرًا لزيارتكم {branch}. فاتورتكم {invoice} بإجمالي {total} {currency}');
     const patch: Record<string, unknown> = { attempts: (e.attempts ?? 0) + 1, message };
 
     if (!to) {
@@ -84,11 +96,12 @@ Deno.serve(async (req) => {
     } else if (!s?.enabled) {
       Object.assign(patch, { status: 'mock', channel: 'mock', last_error: 'notifications_disabled', sent_at: new Date().toISOString() }); result.mock++;
     } else {
-      const wa = await sendWhatsApp(to, s.whatsapp_template, s.whatsapp_lang, [c?.name ?? '', invoiceNo, total]);
+      const wa = s.whatsapp_enabled === false ? { configured: false, ok: false, error: 'whatsapp_disabled' }
+        : await sendWhatsApp(k, to, s.whatsapp_template, s.whatsapp_lang, [c?.name ?? '', invoiceNo, total]);
       if (wa.ok) {
         Object.assign(patch, { status: 'sent', channel: 'whatsapp', last_error: null, sent_at: new Date().toISOString() }); result.sent++;
       } else {
-        const sms = s.sms_fallback ? await sendSms(to, message, e.lang !== 'en') : { configured: false, ok: false, error: 'sms_disabled' };
+        const sms = s.sms_fallback ? await sendSms(k, to, message, e.lang !== 'en') : { configured: false, ok: false, error: 'sms_disabled' };
         if (sms.ok) {
           Object.assign(patch, { status: 'sent', channel: 'sms', last_error: wa.error, sent_at: new Date().toISOString() }); result.sent++;
         } else if (!wa.configured && !sms.configured) {

@@ -47,6 +47,12 @@ class _State extends State<ShiftGate> {
   bool _needsDevice = false;
   bool _loading = true;
   _Tab _tab = _Tab.sale;
+  Set<String> _tabs = const {'sale', 'customers'};
+
+  List<_Tab> get _visible {
+    final v = [for (final t in _Tab.values) if (_tabs.contains(t.name)) t];
+    return v.isEmpty ? const [_Tab.customers] : v;
+  }
 
   @override
   void initState() {
@@ -79,6 +85,20 @@ class _State extends State<ShiftGate> {
       final settings = await Api.client.from('branch_settings').select('shift_roles').eq('branch_id', b['id'] as String).maybeSingle().timeout(const Duration(seconds: 10));
       final allowed = ((settings?['shift_roles'] as List?) ?? const ['cashier']).cast<String>();
       final perms = (b['permissions'] as List).cast<String>().toSet();
+      final roles = ((b['roles'] as List?) ?? const []).cast<String>().toSet();
+      // الأقسام الظاهرة لهذا الحساب والعملة تأتي من إعدادات المنشأة. عند تعذّرها: الافتراضي حسب الدور.
+      try {
+        final st = (await Api.rpc('app_settings', {'p_branch_id': b['id']}) as Map).cast<String, dynamic>();
+        Currency.apply(st);
+        _tabs = ((st['my_tabs'] as List?) ?? const []).cast<String>().toSet();
+      } on NoResponseError {
+        rethrow;
+      } catch (_) {
+        _tabs = roles.contains('owner') || roles.contains('branch_manager')
+            ? {for (final t in _Tab.values) t.name}
+            : roles.contains('accountant') ? {'customers', 'inventory', 'purchases', 'day', 'reports'} : {'sale', 'customers'};
+      }
+      if (!_visible.contains(_tab)) _tab = _visible.first;
       _ctx = ShiftContext(
         userName: user['full_name'] as String, organizationId: b['organization_id'] as String, branchId: b['id'] as String, branchName: b['name_ar'] as String, branchCode: b['code'] as String,
         deviceId: device['id'] as String, deviceName: device['name'] as String, sessionId: session?['id'] as String?,
@@ -162,8 +182,8 @@ class _State extends State<ShiftGate> {
     }
     return CallbackShortcuts(
       bindings: {
-        for (final t in _Tab.values)
-          SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + t.index), alt: true): () => setState(() => _tab = t),
+        for (final (i, t) in _visible.indexed)
+          SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + i), alt: true): () => setState(() => _tab = t),
       },
       child: Scaffold(
         body: Column(children: [
@@ -177,7 +197,7 @@ class _State extends State<ShiftGate> {
                 child: Image.asset('assets/brand/lamsat-logo.png', height: 26),
               ),
               const SizedBox(width: 14),
-              for (final t in _Tab.values)
+              for (final t in _visible)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: TextButton(
@@ -285,7 +305,7 @@ class _OpenState extends State<OpenShiftDialog> {
               textDirection: TextDirection.ltr,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(labelText: 'رصيد الصندوق الافتتاحي (ر.ع)'),
+              decoration: InputDecoration(labelText: 'رصيد الصندوق الافتتاحي (${Currency.symbol})'),
               onSubmitted: (_) => _open(),
             ),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: const TextStyle(color: Brand.bad))),

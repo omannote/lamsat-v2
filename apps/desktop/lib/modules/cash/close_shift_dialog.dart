@@ -146,7 +146,7 @@ class _State extends State<CloseShiftDialog> {
                     textDirection: TextDirection.ltr,
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-                    decoration: const InputDecoration(labelText: 'النقد الفعلي المعدود (ر.ع)'),
+                    decoration: InputDecoration(labelText: 'النقد الفعلي المعدود (${Currency.symbol})'),
                     textInputAction: TextInputAction.next,
                     onSubmitted: (_) => (diff != null && diff != 0) ? _noteFocus.requestFocus() : _close(),
                   ),

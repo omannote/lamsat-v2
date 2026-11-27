@@ -130,7 +130,7 @@ class _LineEditState extends State<LineEditDialog> {
                 controller: _disc,
                 focusNode: _discFocus,
                 textDirection: TextDirection.ltr,
-                decoration: InputDecoration(labelText: 'خصم السطر (ر.ع) — الحد ${formatQty(widget.maxDiscountBp * 10)}%'),
+                decoration: InputDecoration(labelText: 'خصم السطر (${Currency.symbol}) — الحد ${formatQty(widget.maxDiscountBp * 10)}%'),
                 onTap: () => _disc.selection = TextSelection(baseOffset: 0, extentOffset: _disc.text.length),
                 onSubmitted: (_) => _save(),
               ),
@@ -241,7 +241,7 @@ class _SaleDoneState extends State<SaleDoneDialog> {
           width: 560,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(inv['invoice_no'] as String, textDirection: TextDirection.ltr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-            Text('الإجمالي ${formatOmr((inv['total_baisa'] as num).toInt())} ر.ع', textAlign: TextAlign.center, style: const TextStyle(fontSize: 18)),
+            Text('الإجمالي ${money((inv['total_baisa'] as num).toInt())}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 18)),
             if (change > 0 && !widget.reprint) ...[
               const SizedBox(height: 12),
               Text('الباقي للعميل ${formatOmr(change)}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: Brand.ok)),

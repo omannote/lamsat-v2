@@ -344,7 +344,7 @@ class _State extends State<PosScreen> {
       for (final c in changes) {
         body.writeln('${c['name_ar']}: ${formatOmr((c['expected_baisa'] as num).toInt())} ← ${formatOmr((c['current_baisa'] as num).toInt())}');
       }
-      body.write('\nالإجمالي الجديد: ${formatOmr((r['server_total_baisa'] as num).toInt())} ر.ع');
+      body.write('\nالإجمالي الجديد: ${money((r['server_total_baisa'] as num).toInt())}');
       final ok = await _open<bool>(_ConfirmDialog('تأكيد تغيّر السعر', body.toString(), 'اعتماد الأسعار الجديدة والعودة للدفع'));
       if (ok != true || !mounted) return;
       setState(() {
@@ -361,7 +361,7 @@ class _State extends State<PosScreen> {
     setState(() => _tax = TaxSettings(
         enabled: r['tax_enabled'] as bool, rateBp: (r['tax_rate_bp'] as num).toInt(), pricesIncludeTax: r['prices_include_tax'] as bool));
     final ok = await _open<bool>(_ConfirmDialog('تغيّر الإجمالي',
-        'تغيّرت إعدادات الضريبة في النظام. الإجمالي الجديد: ${formatOmr(_cart.total(_tax))} ر.ع', 'متابعة إلى الدفع'));
+        'تغيّرت إعدادات الضريبة في النظام. الإجمالي الجديد: ${money(_cart.total(_tax))}', 'متابعة إلى الدفع'));
     if (ok == true && mounted) return _pay();
   }
 
@@ -551,7 +551,7 @@ class _State extends State<PosScreen> {
                 _sumRow('ضريبة ${formatQty(_tax.rateBp * 10)}%${_tax.pricesIncludeTax ? ' (ضمن السعر)' : ''}', formatOmr(_cart.tax(_tax))),
               const SizedBox(height: 4),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                const Text('الإجمالي (ر.ع)', style: TextStyle(fontSize: 20, color: Brand.muted)),
+                Text('الإجمالي (${Currency.symbol})', style: const TextStyle(fontSize: 20, color: Brand.muted)),
                 Text(formatOmr(total), textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 46, fontWeight: FontWeight.w800, color: Brand.ink)),
               ]),
               const SizedBox(height: 10),
