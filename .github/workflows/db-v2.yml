@@ -40,3 +40,4 @@ jobs:
           supabase functions deploy admin-users --project-ref "$PROJECT_REF" --yes
           supabase functions deploy notify-worker --project-ref "$PROJECT_REF" --no-verify-jwt --yes
           supabase functions deploy first-setup --project-ref "$PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy bridge-webhook --project-ref "$PROJECT_REF" --no-verify-jwt --yes

@@ -10,7 +10,9 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-worker-secret',
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
-type Creds = { whatsapp_token?: string | null; whatsapp_phone_id?: string | null; sms_user?: string | null; sms_password?: string | null; sms_header?: string | null };
+type Creds = { whatsapp_token?: string | null; whatsapp_phone_id?: string | null; sms_user?: string | null; sms_password?: string | null; sms_header?: string | null;
+  bridge_url?: string | null; bridge_api_key?: string | null };
+type Sent = { configured: boolean; ok: boolean; error: string | null; id?: string | null };
 function money(baisa: number, decimals: number, group: boolean) {
   const d = Math.min(3, Math.max(0, decimals)), unit = 10 ** (3 - d), v = Math.round(baisa / unit);
   let whole = String(Math.floor(v / 10 ** d));
@@ -23,6 +25,29 @@ function phoneIntl(raw: string | null, cc = '968'): string | null {
   if (d.startsWith('00')) d = d.slice(2);
   if (d.length === 8) d = cc + d;
   return d.length >= 10 && d.length <= 15 ? d : null;
+}
+
+// الإرسال عبر Smart WhatsApp Bridge: قالب معتمد ومتغيراته بالترتيب. الـ Bridge يتولى الاتصال بـ Meta.
+async function sendBridge(k: Creds, to: string, template: string, params: string[]): Promise<Sent> {
+  if (!k.bridge_url || !k.bridge_api_key || !/^https:\/\//.test(k.bridge_url)) return { configured: false, ok: false, error: 'not_configured' };
+  try {
+    const res = await fetch(`${k.bridge_url.replace(/\/+$/, '')}/messages/send-notification`, {
+      method: 'POST',
+      headers: { 'X-API-Key': k.bridge_api_key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, template_name: template, params }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await res.text();
+    let body: Record<string, unknown> = {};
+    try { body = JSON.parse(text); } catch { /* ردّ غير JSON */ }
+    const data = (body.data ?? {}) as Record<string, unknown>;
+    const failed = !res.ok || body.success === false || body.ok === false || (typeof body.error === 'string' && body.error !== '');
+    const id = [body.wa_message_id, data.wa_message_id, body.message_id, data.message_id].find((x) => typeof x === 'string') as string | undefined;
+    const why = typeof body.error === 'string' ? body.error : typeof body.message === 'string' ? body.message : '';
+    return { configured: true, ok: !failed, error: failed ? `bridge_${res.status}${why ? ': ' + why.slice(0, 160) : ''}` : null, id: id ?? null };
+  } catch (e) {
+    return { configured: true, ok: false, error: `bridge_unreachable: ${String(e).slice(0, 80)}` };
+  }
 }
 
 async function sendWhatsApp(k: Creds, to: string, template: string, lang: string, params: string[]) {
@@ -96,10 +121,15 @@ Deno.serve(async (req) => {
     } else if (!s?.enabled) {
       Object.assign(patch, { status: 'mock', channel: 'mock', last_error: 'notifications_disabled', sent_at: new Date().toISOString() }); result.mock++;
     } else {
-      const wa = s.whatsapp_enabled === false ? { configured: false, ok: false, error: 'whatsapp_disabled' }
-        : await sendWhatsApp(k, to, s.whatsapp_template, s.whatsapp_lang, [c?.name ?? '', invoiceNo, total]);
+      const values: Record<string, string> = { customer: c?.name ?? '', invoice: invoiceNo, total, currency: o?.currency_symbol ?? 'ر.ع',
+        branch: b?.name_ar ?? '', date: String(e.created_at ?? '').slice(0, 10) };
+      const params = String(s.whatsapp_params ?? 'customer,invoice,total').split(',').map((p) => values[p.trim()] ?? '');
+      const wa: Sent = s.whatsapp_enabled === false ? { configured: false, ok: false, error: 'whatsapp_disabled' }
+        : s.whatsapp_provider === 'bridge' ? await sendBridge(k, to, s.whatsapp_template, params)
+        : await sendWhatsApp(k, to, s.whatsapp_template, s.whatsapp_lang, params);
       if (wa.ok) {
-        Object.assign(patch, { status: 'sent', channel: 'whatsapp', last_error: null, sent_at: new Date().toISOString() }); result.sent++;
+        Object.assign(patch, { status: 'sent', channel: s.whatsapp_provider === 'bridge' ? 'bridge' : 'whatsapp', last_error: null,
+          provider_message_id: wa.id ?? null, sent_at: new Date().toISOString() }); result.sent++;
       } else {
         const sms = s.sms_fallback ? await sendSms(k, to, message, e.lang !== 'en') : { configured: false, ok: false, error: 'sms_disabled' };
         if (sms.ok) {

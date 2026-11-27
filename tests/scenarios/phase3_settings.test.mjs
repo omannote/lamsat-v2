@@ -259,9 +259,9 @@ test('دفعات الإطارات: كل استلام يحمل سنته ورفّ�
 test('بيانات ربط واتساب والرسائل تُكتب من المالك فقط ولا تُقرأ من أي حساب', async () => {
   await expectCode(db.rpc(ID.manager, 'set_notification_credentials', [ID.org, { whatsapp_token: 'x' }]), 'FORBIDDEN');
   const a = await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { whatsapp_token: 'tok-123', whatsapp_phone_id: '555' }]);
-  assert.deepEqual(a, { has_whatsapp: true, has_sms: false });
+  assert.deepEqual(a, { has_whatsapp: true, has_sms: false, has_bridge: false });
   const b = await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { sms_user: 'u', sms_password: 'p', sms_header: 'LAMSAT' }]);
-  assert.deepEqual(b, { has_whatsapp: true, has_sms: true }, 'الحقول غير المرسلة تبقى');
+  assert.deepEqual(b, { has_whatsapp: true, has_sms: true, has_bridge: false }, 'الحقول غير المرسلة تبقى');
   const ov = await db.rpc(ID.owner, 'notification_overview', [ID.org]);
   assert.deepEqual([ov.link.has_whatsapp, ov.link.whatsapp_phone_id, ov.link.sms_header, ov.link.can_edit], [true, '555', 'LAMSAT', true]);
   assert.ok(!JSON.stringify(ov).includes('tok-123') && !JSON.stringify(ov).includes('"p"'), 'القيم السرية لا تعود');
@@ -271,4 +271,18 @@ test('بيانات ربط واتساب والرسائل تُكتب من الما
   assert.equal((await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { whatsapp_token: '' }])).has_whatsapp, false);
   const st = await db.rpc(ID.owner, 'update_notification_settings', [ID.org, { whatsapp_enabled: false, sms_text_ar: 'شكرًا {customer}' }]);
   assert.deepEqual([st.whatsapp_enabled, st.sms_text_ar, st.enabled], [false, 'شكرًا {customer}', false]);
+});
+
+test('ربط Smart WhatsApp Bridge: الرابط https فقط، المفتاح لا يعود، والمزوّد ومتغيرات القالب تُضبط', async () => {
+  await expectCode(db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { bridge_url: 'http://insecure.example/api' }]), 'INVALID_REQUEST');
+  const a = await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { bridge_url: 'https://bridge.example/whatsapp/api/', bridge_api_key: 'wab_live_secret', bridge_webhook_secret: 'hook-secret' }]);
+  assert.deepEqual([a.has_bridge, a.has_sms], [true, true], 'بيانات الرسائل النصية السابقة باقية');
+  const ov = await db.rpc(ID.owner, 'notification_overview', [ID.org]);
+  assert.deepEqual([ov.link.has_bridge, ov.link.bridge_url, ov.link.has_bridge_webhook], [true, 'https://bridge.example/whatsapp/api', true]);
+  assert.ok(!JSON.stringify(ov).includes('wab_live_secret') && !JSON.stringify(ov).includes('hook-secret'));
+  const st = await db.rpc(ID.owner, 'update_notification_settings', [ID.org, { whatsapp_provider: 'bridge', whatsapp_params: 'customer, invoice, total, currency' }]);
+  assert.deepEqual([st.whatsapp_provider, st.whatsapp_params], ['bridge', 'customer,invoice,total,currency']);
+  await expectCode(db.rpc(ID.owner, 'update_notification_settings', [ID.org, { whatsapp_provider: 'other' }]), 'INVALID_REQUEST');
+  await expectCode(db.rpc(ID.owner, 'update_notification_settings', [ID.org, { whatsapp_params: 'customer,password' }]), 'INVALID_REQUEST');
+  assert.equal((await db.rpc(ID.owner, 'set_notification_credentials', [ID.org, { bridge_api_key: '' }])).has_bridge, false);
 });

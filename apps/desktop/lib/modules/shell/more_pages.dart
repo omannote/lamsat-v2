@@ -1371,6 +1371,8 @@ class _SettingsState extends State<SettingsPage> {
   Map<String, dynamic>? _notify;
   final _waPhoneId = TextEditingController(), _waToken = TextEditingController(), _waTemplate = TextEditingController(), _waLang = TextEditingController();
   final _smsUser = TextEditingController(), _smsPass = TextEditingController(), _smsHeader = TextEditingController(), _smsText = TextEditingController();
+  final _brUrl = TextEditingController(), _brKey = TextEditingController(), _brHook = TextEditingController(), _waParams = TextEditingController();
+  String _provider = 'cloud';
 
   Future<void> _loadNotify() async {
     try {
@@ -1385,6 +1387,11 @@ class _SettingsState extends State<SettingsPage> {
       _smsText.text = '${st['sms_text_ar'] ?? ''}';
       _waToken.clear();
       _smsPass.clear();
+      _brKey.clear();
+      _brHook.clear();
+      _brUrl.text = '${link['bridge_url'] ?? ''}';
+      _waParams.text = '${st['whatsapp_params'] ?? 'customer,invoice,total'}';
+      _provider = st['whatsapp_provider'] == 'bridge' ? 'bridge' : 'cloud';
       if (mounted) setState(() => _notify = r);
     } catch (e) {
       if (mounted) setState(() { _msg = _fail(e); _msgOk = false; _notify = const {}; });
@@ -1422,19 +1429,32 @@ class _SettingsState extends State<SettingsPage> {
 
   /// يحفظ بيانات الربط. الحقول السرية (الرمز وكلمة المرور) تُرسل فقط إذا كُتبت؛ الفارغ يعني «أبقِ المحفوظ».
   Future<void> _saveLink() async {
+    final params = _waParams.text.replaceAll(' ', '').toLowerCase();
+    String? bad;
+    if (_brUrl.text.trim().isNotEmpty && !_brUrl.text.trim().startsWith('https://')) bad = 'رابط الـ Bridge يبدأ بـ https://';
+    if (!RegExp(r'^(customer|invoice|total|currency|branch|date)(,(customer|invoice|total|currency|branch|date)){0,9}$').hasMatch(params)) {
+      bad = 'متغيرات القالب: أسماء مفصولة بفواصل من customer, invoice, total, currency, branch, date';
+    }
+    if (bad != null) {
+      setState(() { _msg = bad; _msgOk = false; });
+      return;
+    }
     setState(() { _busy = true; _msg = null; });
     try {
       await Api.rpc('set_notification_credentials', {
         'p_organization_id': widget.ctx.organizationId,
         'p': {
           'whatsapp_phone_id': _waPhoneId.text.trim(), 'sms_user': _smsUser.text.trim(), 'sms_header': _smsHeader.text.trim(),
+          'bridge_url': _brUrl.text.trim(),
+          if (_brKey.text.trim().isNotEmpty) 'bridge_api_key': _brKey.text.trim(),
+          if (_brHook.text.trim().isNotEmpty) 'bridge_webhook_secret': _brHook.text.trim(),
           if (_waToken.text.trim().isNotEmpty) 'whatsapp_token': _waToken.text.trim(),
           if (_smsPass.text.trim().isNotEmpty) 'sms_password': _smsPass.text.trim(),
         }
       });
       await Api.rpc('update_notification_settings', {
         'p_organization_id': widget.ctx.organizationId,
-        'p': {'whatsapp_template': _waTemplate.text.trim(), 'whatsapp_lang': _waLang.text.trim(), 'sms_text_ar': _smsText.text.trim()}
+        'p': {'whatsapp_template': _waTemplate.text.trim(), 'whatsapp_lang': _waLang.text.trim(), 'sms_text_ar': _smsText.text.trim(), 'whatsapp_provider': _provider, 'whatsapp_params': params}
       });
       await _loadNotify();
       _msg = 'حُفظت بيانات الربط.';
@@ -1451,7 +1471,11 @@ class _SettingsState extends State<SettingsPage> {
     try {
       await Api.rpc('set_notification_credentials', {
         'p_organization_id': widget.ctx.organizationId,
-        'p': what == 'whatsapp' ? {'whatsapp_token': '', 'whatsapp_phone_id': ''} : {'sms_user': '', 'sms_password': '', 'sms_header': ''}
+        'p': switch (what) {
+          'whatsapp' => {'whatsapp_token': '', 'whatsapp_phone_id': ''},
+          'bridge' => {'bridge_url': '', 'bridge_api_key': '', 'bridge_webhook_secret': ''},
+          _ => {'sms_user': '', 'sms_password': '', 'sms_header': ''},
+        }
       });
       await _loadNotify();
       _msg = 'أُلغي الربط.';
@@ -1484,8 +1508,10 @@ class _SettingsState extends State<SettingsPage> {
     final st = ((n['settings'] as Map?) ?? const {}).cast<String, dynamic>();
     final link = ((n['link'] as Map?) ?? const {}).cast<String, dynamic>();
     final e = link['can_edit'] == true && !_busy;
-    final hasWa = link['has_whatsapp'] == true, hasSms = link['has_sms'] == true;
+    final hasWa = link['has_whatsapp'] == true, hasSms = link['has_sms'] == true, hasBridge = link['has_bridge'] == true;
+    final hookUrl = '${Api.config.supabaseUrl}/functions/v1/bridge-webhook?org=${widget.ctx.organizationId}';
     const statusLabels = {'pending': 'معلّق', 'sent': 'أُرسل', 'mock': 'تجريبي (لم يُرسل)', 'failed': 'فشل'};
+    const deliveryLabels = {'sent': 'أُرسل', 'delivered': 'وصل', 'read': 'قُرئ', 'failed': 'فشل التسليم'};
     return ListView(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 0),
@@ -1493,16 +1519,45 @@ class _SettingsState extends State<SettingsPage> {
           _section('زر واتساب في شاشة البيع'),
           const Text('يعمل بلا ربط: يفتح محادثة العميل في واتساب ويب المفتوح على هذا الجهاز بحساب المحل، ومعه رابط الفاتورة PDF. نص الرسالة يُعدَّل من «المنشأة والعملة».', style: TextStyle(color: Brand.muted)),
           const Divider(height: 28),
-          Row(children: [Expanded(child: _section('الإرسال الآلي عبر واتساب (WhatsApp Cloud API)')), _badge(hasWa, 'مربوط', 'غير مربوط')]),
-          _fields([
-            _input(_waPhoneId, 'معرّف رقم الهاتف (Phone number ID)', ltr: true, enabled: e),
-            _secret(_waToken, 'رمز الوصول الدائم (Access token)', hasWa, e),
-          ]),
+          _section('الإرسال الآلي عبر واتساب'),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'bridge', label: Text('Smart WhatsApp Bridge')),
+                ButtonSegment(value: 'cloud', label: Text('WhatsApp Cloud API مباشرة')),
+              ],
+              selected: {_provider},
+              onSelectionChanged: e ? (v) => setState(() => _provider = v.first) : null,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_provider == 'bridge') ...[
+            Row(children: [const Expanded(child: Text('بيانات الـ Bridge', style: TextStyle(fontWeight: FontWeight.w700))), _badge(hasBridge, 'مربوط', 'غير مربوط')]),
+            const SizedBox(height: 8),
+            _fields([
+              _input(_brUrl, 'رابط الـ API الأساسي (Base URL)', ltr: true, enabled: e),
+              _secret(_brKey, 'مفتاح الـ API (X-API-Key)', hasBridge, e),
+            ]),
+            _fields([
+              _labeled('عنوان استقبال حالة التسليم — سجّله في الـ Bridge', SelectableText(hookUrl, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 13))),
+              _secret(_brHook, 'سر الـ Webhook (يظهر مرة واحدة عند تسجيل العنوان)', link['has_bridge_webhook'] == true, e),
+            ]),
+          ] else ...[
+            Row(children: [const Expanded(child: Text('بيانات Meta', style: TextStyle(fontWeight: FontWeight.w700))), _badge(hasWa, 'مربوط', 'غير مربوط')]),
+            const SizedBox(height: 8),
+            _fields([
+              _input(_waPhoneId, 'معرّف رقم الهاتف (Phone number ID)', ltr: true, enabled: e),
+              _secret(_waToken, 'رمز الوصول الدائم (Access token)', hasWa, e),
+            ]),
+          ],
           _fields([
             _input(_waTemplate, 'اسم القالب المعتمد', ltr: true, enabled: e),
-            _input(_waLang, 'لغة القالب (ar أو en)', ltr: true, enabled: e),
+            if (_provider == 'cloud') _input(_waLang, 'لغة القالب (ar أو en)', ltr: true, enabled: e),
+            _input(_waParams, 'متغيرات القالب بالترتيب', ltr: true, enabled: e),
           ]),
-          const Text('القالب يُنشأ ويُعتمد في حساب واتساب للأعمال، بثلاثة متغيرات بالترتيب: اسم العميل، رقم الفاتورة، الإجمالي.', style: TextStyle(color: Brand.muted)),
+          const Text('القالب يُنشأ ويُعتمد من Meta (من قسم القوالب في الـ Bridge). متغيراته {{1}} {{2}}… تُملأ بالترتيب المكتوب أعلاه، من: customer (العميل)، invoice (رقم الفاتورة)، total (الإجمالي)، currency (العملة)، branch (الفرع)، date (التاريخ).', style: TextStyle(color: Brand.muted)),
           const Divider(height: 28),
           Row(children: [Expanded(child: _section('الرسائل النصية القصيرة (iSmartSMS)')), _badge(hasSms, 'مربوط', 'غير مربوط')]),
           _fields([
@@ -1525,7 +1580,8 @@ class _SettingsState extends State<SettingsPage> {
           if (link['can_edit'] == true)
             Wrap(spacing: 10, runSpacing: 8, children: [
               FilledButton(onPressed: _busy ? null : _saveLink, child: Text(_busy ? 'جارٍ الحفظ…' : 'حفظ بيانات الربط')),
-              if (hasWa) OutlinedButton(onPressed: _busy ? null : () => _unlink('whatsapp'), child: const Text('إلغاء ربط واتساب')),
+              if (hasBridge) OutlinedButton(onPressed: _busy ? null : () => _unlink('bridge'), child: const Text('إلغاء ربط الـ Bridge')),
+              if (hasWa) OutlinedButton(onPressed: _busy ? null : () => _unlink('whatsapp'), child: const Text('إلغاء ربط Meta')),
               if (hasSms) OutlinedButton(onPressed: _busy ? null : () => _unlink('sms'), child: const Text('إلغاء ربط الرسائل')),
             ])
           else
@@ -1557,7 +1613,7 @@ class _SettingsState extends State<SettingsPage> {
       ),
       const Padding(
         padding: EdgeInsets.symmetric(horizontal: 14),
-        child: Text('الإرسال الفعلي يتطلب التفعيل هنا ووجود ربط واتساب أو الرسائل أعلاه. بدونهما تُسجَّل الرسائل «تجريبي» ولا يصل شيء لأي عميل.', style: TextStyle(color: Brand.muted)),
+        child: Text('الإرسال الفعلي يتطلب التفعيل هنا ووجود ربط واتساب (الـ Bridge أو Meta) أو الرسائل أعلاه. بدونهما تُسجَّل الرسائل «تجريبي» ولا يصل شيء لأي عميل.', style: TextStyle(color: Brand.muted)),
       ),
       if (_msg != null) Padding(padding: const EdgeInsets.all(14), child: Text(_msg!, style: TextStyle(color: _msgOk ? Brand.ok : Brand.bad, fontSize: 16))),
       const SizedBox(height: 8),
@@ -1570,7 +1626,7 @@ class _SettingsState extends State<SettingsPage> {
             _cell('${ev['created_at']}'.substring(0, 16).replaceFirst('T', ' '), flex: 2, num: true),
             _cell('${ev['customer'] ?? ''}', flex: 3),
             _cell('${ev['invoice_no'] ?? ''}', flex: 3, num: true),
-            _cell(statusLabels[ev['status']] ?? '${ev['status']}', flex: 2, bold: true),
+            _cell(deliveryLabels[ev['delivery_status']] ?? statusLabels[ev['status']] ?? '${ev['status']}', flex: 2, bold: true),
             _cell('${ev['channel'] ?? '—'}', flex: 1),
             _cell('${ev['last_error'] ?? ''}', flex: 3),
           ]),
@@ -1581,7 +1637,7 @@ class _SettingsState extends State<SettingsPage> {
   @override
   void dispose() {
     for (final c in [_rate, _header, _footer, _orgName, _orgNameEn, _taxNo, _curCode, _curSymbol, _phoneCode, _waMsg,
-      _waPhoneId, _waToken, _waTemplate, _waLang, _smsUser, _smsPass, _smsHeader, _smsText]) {
+      _waPhoneId, _waToken, _waTemplate, _waLang, _smsUser, _smsPass, _smsHeader, _smsText, _brUrl, _brKey, _brHook, _waParams]) {
       c.dispose();
     }
     super.dispose();
