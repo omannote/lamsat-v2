@@ -1,16 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api.dart';
 import '../../core/money.dart';
+
+part 'invoice_raster.dart';
 
 class PrintFailure implements Exception {
   final String message;
@@ -75,7 +80,27 @@ class ReceiptPrinter {
   }
 
   /// يبني PDF الفاتورة من تمثيلها كما أعاده الخادم (approve_sale / get_invoice) بالشكل المناسب لنوع الطابعة.
+  /// الفاتورة تُرسم بخط المنشأة عبر محرك Flutter وتوضع صورةً في PDF؛ إن تعذّر ذلك يُستخدم التخطيط الاحتياطي بخط DejaVu.
   static Future<Uint8List> buildPdf(Map<String, dynamic> inv, {required PrinterKind kind, bool reprint = false}) async {
+    try {
+      final pages = await _Raster.render(inv, kind: kind, reprint: reprint);
+      final doc = pw.Document(title: inv['invoice_no'] as String);
+      for (final p in pages) {
+        final image = pw.MemoryImage(p.png);
+        doc.addPage(pw.Page(
+          pageFormat: kind == PrinterKind.a4
+              ? PdfPageFormat(p.widthPt, p.heightPt, marginAll: 0)
+              : PdfPageFormat(80 * PdfPageFormat.mm, p.heightPt + 8 * PdfPageFormat.mm, marginAll: 4 * PdfPageFormat.mm),
+          build: (_) => pw.Image(image, fit: pw.BoxFit.fill),
+        ));
+      }
+      return doc.save();
+    } catch (_) {
+      return _buildPdfVector(inv, kind: kind, reprint: reprint);
+    }
+  }
+
+  static Future<Uint8List> _buildPdfVector(Map<String, dynamic> inv, {required PrinterKind kind, bool reprint = false}) async {
     await _loadAssets();
     final doc = pw.Document(title: inv['invoice_no'] as String);
     final theme = pw.ThemeData.withFont(base: _regular!, bold: _bold!);
@@ -375,8 +400,18 @@ class ReceiptPrinter {
 
   /// يكتب الفاتورة PDF في مجلد مؤقت (للعرض أو السحب إلى واتساب) بالشكل المناسب لنوع الطابعة، ويعيد المسار.
   /// لا تُحفظ نسخة في النظام؛ الملف المؤقت يُستبدل عند كل عرض.
-  static Future<String> tempPdf(Map<String, dynamic> inv) async {
-    final kind = await savedKind();
+  /// يرفع فاتورة A4 بصيغة PDF إلى مخزن خاص ويعيد رابطًا موقّعًا صالحًا 30 يومًا يفتحه العميل من رسالة واتساب.
+  static Future<String> uploadCustomerPdf(Map<String, dynamic> inv) async {
+    final bytes = await buildPdf(inv, kind: PrinterKind.a4);
+    final safe = (inv['invoice_no'] as String).replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final path = '${inv['id']}/$safe.pdf';
+    final bucket = Api.client.storage.from('invoices');
+    await bucket.uploadBinary(path, bytes, fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true)).timeout(const Duration(seconds: 25));
+    return bucket.createSignedUrl(path, 30 * 24 * 3600).timeout(const Duration(seconds: 15));
+  }
+
+  static Future<String> tempPdf(Map<String, dynamic> inv, {PrinterKind? as}) async {
+    final kind = as ?? await savedKind();
     final bytes = await buildPdf(inv, kind: kind, reprint: false);
     final dir = Directory('${Directory.systemTemp.path}${Platform.pathSeparator}Lamsat');
     await dir.create(recursive: true);
@@ -430,7 +465,7 @@ class ReceiptPrinter {
 
   /// رابط محادثة واتساب ويب مع العميل برسالة جاهزة (بلا ربط API: يُفتح في حساب المحل المفتوح على هذا الجهاز).
   /// الرسالة تذكر بنود الضمان ومدتها إن وُجدت.
-  static String whatsappUrl(Map<String, dynamic> inv, String phone) {
+  static String whatsappUrl(Map<String, dynamic> inv, String phone, {String? pdfLink}) {
     final branch = (inv['branch'] as Map).cast<String, dynamic>();
     final customer = inv['customer'] as Map?;
     final text = [
@@ -440,6 +475,7 @@ class ReceiptPrinter {
       'الإجمالي: ${formatOmr((inv['total_baisa'] as num).toInt())} ر.ع',
       for (final w in ((inv['warranties'] as List?) ?? const []).cast<Map>())
         'ضمان ${w['product_name']}: ${w['months']} شهرًا حتى ${w['expires_on']} (رقم ${w['warranty_no']})',
+      if (pdfLink != null) 'الفاتورة PDF (الرابط صالح 30 يومًا):\n$pdfLink',
       if (branch['phone'] != null) 'للاستفسار: ${branch['phone']}',
     ].join('\n');
     return 'https://web.whatsapp.com/send?phone=$phone&text=${Uri.encodeComponent(text)}';

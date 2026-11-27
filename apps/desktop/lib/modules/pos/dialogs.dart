@@ -202,15 +202,21 @@ class _SaleDoneState extends State<SaleDoneDialog> {
       }
     }
     try {
-      final path = await ReceiptPrinter.tempPdf(widget.invoice);
+      if (mounted) setState(() { _pdfNote = 'جارٍ تجهيز الفاتورة PDF…'; _pdfError = null; });
+      // رابط الفاتورة داخل الرسالة نفسها؛ وإن تعذّر الرفع يبقى الملف منسوخًا للصقه يدويًا
+      String? link;
+      try {
+        link = await ReceiptPrinter.uploadCustomerPdf(widget.invoice);
+      } catch (_) {}
+      final path = await ReceiptPrinter.tempPdf(widget.invoice, as: PrinterKind.a4);
       final copied = await ReceiptPrinter.copyFileToClipboard(path);
-      await ReceiptPrinter.openUrl(ReceiptPrinter.whatsappUrl(widget.invoice, phone));
-      if (!copied) await ReceiptPrinter.revealInExplorer(path);
+      await ReceiptPrinter.openUrl(ReceiptPrinter.whatsappUrl(widget.invoice, phone, pdfLink: link));
+      if (link == null && !copied) await ReceiptPrinter.revealInExplorer(path);
       if (mounted) {
         setState(() {
-          _pdfNote = copied
-              ? 'فُتح واتساب ويب على محادثة $phone والرسالة جاهزة. اضغط Ctrl+V داخل المحادثة لإرفاق الفاتورة PDF ثم Enter للإرسال.'
-              : 'فُتح واتساب ويب على محادثة $phone والرسالة جاهزة. اسحب ملف PDF الظاهر في المجلد إلى المحادثة ثم اضغط إرسال.';
+          _pdfNote = link != null
+              ? 'فُتح واتساب ويب على محادثة $phone والرسالة تحمل رابط الفاتورة PDF. اضغط Enter للإرسال.${copied ? ' ولإرفاق الملف نفسه أيضًا اضغط Ctrl+V أولًا.' : ''}'
+              : 'تعذّر رفع الفاتورة فلم يُضف رابطها. ${copied ? 'اضغط Ctrl+V داخل المحادثة لإرفاق الملف ثم Enter.' : 'اسحب ملف PDF الظاهر في المجلد إلى المحادثة.'}';
           _pdfError = null;
         });
       }
