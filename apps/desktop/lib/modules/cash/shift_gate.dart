@@ -40,6 +40,11 @@ class ShiftGate extends StatefulWidget {
 class _State extends State<ShiftGate> {
   ShiftContext? _ctx;
   String? _error;
+  // جهاز غير مسجّل: يُعرض نموذج تسجيله لمن يملك الصلاحية
+  List<Map<String, dynamic>> _regBranches = [];
+  String? _regBranch;
+  final _regName = TextEditingController(text: 'صندوق');
+  bool _needsDevice = false;
   bool _loading = true;
   _Tab _tab = _Tab.sale;
 
@@ -50,10 +55,21 @@ class _State extends State<ShiftGate> {
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; _error = null; _needsDevice = false; });
     try {
       final ctx = (await Api.rpc('my_context') as Map).cast<String, dynamic>();
-      final dev = (await Api.rpc('resolve_device', {'p_code': Api.config.deviceCode}) as Map).cast<String, dynamic>();
+      final Map<String, dynamic> dev;
+      try {
+        dev = (await Api.rpc('resolve_device', {'p_code': Api.config.deviceCode}) as Map).cast<String, dynamic>();
+      } on BusinessError catch (e) {
+        if (e.code != 'DEVICE_NOT_FOUND') rethrow;
+        _regBranches = ((ctx['branches'] as List?) ?? const []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+        _regBranch = _regBranches.isEmpty ? null : _regBranches.first['id'] as String;
+        _needsDevice = true;
+        _error = 'هذا الجهاز (${Api.config.deviceCode}) غير مسجّل في أي فرع.';
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
       final device = (dev['device'] as Map).cast<String, dynamic>();
       final user = (ctx['user'] as Map?)?.cast<String, dynamic>();
       if (user == null) throw BusinessError('FORBIDDEN');
@@ -80,6 +96,27 @@ class _State extends State<ShiftGate> {
     if (mounted) setState(() => _loading = false);
   }
 
+  Future<void> _registerDevice() async {
+    if (_regBranch == null) return;
+    setState(() { _loading = true; });
+    try {
+      await Api.rpc('register_device', {'p_code': Api.config.deviceCode, 'p_name': _regName.text.trim(), 'p_branch_id': _regBranch});
+      await _load();
+      return;
+    } on BusinessError catch (e) {
+      _error = e.code == 'FORBIDDEN' ? 'تسجيل الجهاز للمالك أو مدير الفرع. اطلب منه الدخول بحسابه على هذا الجهاز.' : errorMessage(e.code);
+    } on NoResponseError {
+      _error = 'لا يوجد اتصال بالخادم.';
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  void dispose() {
+    _regName.dispose();
+    super.dispose();
+  }
+
   Future<void> _openShift() async {
     final c = _ctx!;
     final opened = await showDialog<bool>(context: context, barrierDismissible: false, builder: (_) => OpenShiftDialog(ctx: c));
@@ -102,7 +139,21 @@ class _State extends State<ShiftGate> {
                 : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Text(_error ?? '', style: const TextStyle(color: Brand.bad, fontSize: 17)),
                     const SizedBox(height: 16),
-                    FilledButton(onPressed: _load, child: const Text('إعادة المحاولة')),
+                    if (_needsDevice && _regBranches.isNotEmpty) ...[
+                      const Text('سجّل هذا الجهاز في فرع:', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      DropdownButton<String>(
+                        value: _regBranch,
+                        isExpanded: true,
+                        items: [for (final b in _regBranches) DropdownMenuItem(value: b['id'] as String, child: Text('${b['name_ar']}'))],
+                        onChanged: (v) => setState(() => _regBranch = v),
+                      ),
+                      TextField(controller: _regName, decoration: const InputDecoration(labelText: 'اسم الصندوق')),
+                      const SizedBox(height: 12),
+                      FilledButton(onPressed: _registerDevice, child: const Text('تسجيل الجهاز')),
+                      const SizedBox(height: 8),
+                    ],
+                    OutlinedButton(onPressed: _load, child: const Text('إعادة المحاولة')),
                     TextButton(onPressed: () => Api.client.auth.signOut(), child: const Text('تسجيل الخروج')),
                   ]),
           ),

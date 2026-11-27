@@ -188,3 +188,15 @@ test('مدير الفرع يضبط ضريبة فرعه فقط، والكاشير
   await expectCode(db.rpc(ID.manager, 'update_branch_settings', [ID.tnt, { tax_enabled: true }]), 'FORBIDDEN');
   await expectCode(db.rpc(ID.cashierTyr, 'update_branch_settings', [ID.tyr, { tax_enabled: false }]), 'FORBIDDEN');
 });
+
+test('الإعداد الأول يُقفل بعد وجود منشأة، وتسجيل الأجهزة بصلاحية الإدارة', async () => {
+  assert.equal((await db.rpc(ID.cashierTyr, 'setup_status', [])).initialized, true);
+  await assert.rejects(db.sql(`select public.bootstrap_organization('{"owner_id":"a0000000-0000-4000-8000-000000000001","owner_name":"x","org_name_ar":"y","branches":[{"code":"AA","name_ar":"z"}]}'::jsonb)`), /ALREADY_INITIALIZED/);
+  await expectCode(db.rpc(ID.cashierTyr, 'register_device', ['POS-NEW-01', 'جديد', ID.tyr]), 'FORBIDDEN');
+  await expectCode(db.rpc(ID.manager, 'register_device', ['POS-NEW-01', 'جديد', ID.tnt]), 'FORBIDDEN');
+  const d = await db.rpc(ID.manager, 'register_device', ['POS-NEW-01', 'صندوق جديد', ID.tyr]);
+  assert.equal(d.branch_id, ID.tyr);
+  assert.equal((await db.rpc(ID.manager, 'resolve_device', ['POS-NEW-01'])).device.code, 'POS-NEW-01');
+  const moved = await db.rpc(ID.owner, 'register_device', ['POS-NEW-01', '', ID.tnt]);
+  assert.deepEqual([moved.branch_id, moved.name], [ID.tnt, 'صندوق جديد']);
+});
