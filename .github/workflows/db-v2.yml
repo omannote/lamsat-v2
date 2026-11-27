@@ -1,10 +1,10 @@
 # يطبّق ترحيلات قاعدة البيانات ودوال الخادم على مشروع Supabase للإصدار 2 (lamsat-v2).
-# يعمل عند كل تحديث لفرع v2 يمسّ مجلد supabase، أو يدويًا من صفحة Actions.
+# يعمل عند كل تحديث للفرع main يمسّ مجلد supabase، أو يدويًا من صفحة Actions.
 # يحتاج سرّين في إعدادات المستودع: SUPABASE_ACCESS_TOKEN و SUPABASE_DB_PASSWORD. بدونهما يتخطى التطبيق ولا يفشل.
 name: db-v2
 on:
   push:
-    branches: [v2]
+    branches: [main]
     paths: ['supabase/**', '.github/workflows/db-v2.yml']
   workflow_dispatch:
 env:
@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { ref: v2 }
       - name: Check secrets
         id: secrets
         run: |
