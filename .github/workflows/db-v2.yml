@@ -33,7 +33,7 @@ jobs:
         run: supabase link --project-ref "$PROJECT_REF"
       - name: Apply migrations
         if: steps.secrets.outputs.ready == 'true'
-        run: supabase db push --include-all
+        run: supabase db push --linked --include-all --yes
       - name: Deploy edge functions
         if: steps.secrets.outputs.ready == 'true'
         run: |
