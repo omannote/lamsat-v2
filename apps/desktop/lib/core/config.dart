@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// إعدادات الجهاز: تُقرأ من ملف lamsat.config.json بجوار الملف التنفيذي،
+/// إعدادات الجهاز: تُقرأ من ملف lamsat-v2.config.json بجوار الملف التنفيذي،
 /// أو من --dart-define أثناء التطوير. المفتاح هنا هو المفتاح العلني فقط.
 class AppConfig {
   final String supabaseUrl;
@@ -21,16 +21,17 @@ class AppConfig {
     return u.contains('@') ? u : '$u@$loginDomain';
   }
 
-  // مشروع الإصدار 2. المفتاح القابل للنشر عام بطبيعته (الصلاحيات تُفرض في الخادم)؛ ملف lamsat.config.json يتجاوزهما إن وُجد.
+  // مشروع الإصدار 2. المفتاح القابل للنشر عام بطبيعته (الصلاحيات تُفرض في الخادم)؛ ملف lamsat-v2.config.json يتجاوزهما إن وُجد.
   static const _url = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://aadhppkwtmhyagljopcv.supabase.co');
   static const _key = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY', defaultValue: 'sb_publishable_l7qzmVoiXjd0Ozet43CWdw_Tkp7PrpH');
   static const _device = String.fromEnvironment('DEVICE_CODE');
 
   static AppConfig load() {
     var url = _url, key = _key, device = _device, domain = 'lamsat.test';
+    // اسم الملف يخص الإصدار 2 عمدًا: ملف lamsat.config.json القديم يوجّه إلى قاعدة النسخة السابقة فيُتجاهل.
     final candidates = [
-      File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}lamsat.config.json'),
-      File('lamsat.config.json'),
+      File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}lamsat-v2.config.json'),
+      File('lamsat-v2.config.json'),
     ];
     for (final f in candidates) {
       if (!f.existsSync()) continue;
@@ -42,7 +43,7 @@ class AppConfig {
       break;
     }
     if (url.isEmpty || key.isEmpty) {
-      throw const FormatException('ملف الإعدادات lamsat.config.json ناقص: supabase_url و supabase_publishable_key مطلوبان.');
+      throw const FormatException('ملف الإعدادات lamsat-v2.config.json ناقص: supabase_url و supabase_publishable_key مطلوبان.');
     }
     return AppConfig(supabaseUrl: url, publishableKey: key, deviceCode: device, loginDomain: domain);
   }

@@ -86,6 +86,9 @@ class _RootState extends State<_Root> {
     try {
       final r = (await Api.rpc('setup_status') as Map).cast<String, dynamic>();
       if (mounted) setState(() => _initialized = r['initialized'] == true);
+    } on BusinessError catch (e) {
+      // الخادم ردّ لكنه لا يعرف الطلب: التطبيق موجَّه إلى قاعدة غير قاعدة هذا الإصدار، أو ترحيلاتها ناقصة
+      if (mounted) setState(() => _error = 'الخادم ${Uri.parse(Api.config.supabaseUrl).host} متصل لكنه غير مهيأ لهذا الإصدار (${e.code}).');
     } catch (_) {
       if (mounted) setState(() => _error = 'لا يوجد اتصال بالخادم. النظام يعمل بالإنترنت فقط.');
     }
