@@ -94,7 +94,7 @@ class ReceiptPrinter {
           build: (_) => pw.Image(image, fit: pw.BoxFit.fill),
         ));
       }
-      return doc.save();
+      return await doc.save();
     } catch (_) {
       return _buildPdfVector(inv, kind: kind, reprint: reprint);
     }
